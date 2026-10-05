@@ -1,0 +1,22 @@
+services:
+  agenticarchive:
+    build: .
+    image: agenticarchive:local
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - type: bind
+        source: ${ARCHIVE_PATH:-./archive}
+        target: /archive
+        read_only: true
+        bind:
+          create_host_path: false
+      - archive-data:/data
+    mem_limit: 512m
+    memswap_limit: 512m
+    cpus: 1.0
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 15s
+volumes:
+  archive-data:

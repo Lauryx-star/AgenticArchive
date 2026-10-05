@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>AgenticArchive · PDF-Suche</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header><a class="brand" href="/">AgenticArchive<span>Dein lokales PDF-Archiv</span></a>
+    <label class="theme">Darstellung<select id="theme"><option value="auto">Automatisch</option><option value="light">Hell</option><option value="dark">Dunkel</option></select></label>
+  </header>
+  <main>
+    <div class="workspace">
+      <nav class="view-switch" aria-label="Archivansicht"><button id="show-search" type="button" aria-pressed="true">Suche</button><button id="show-documents" type="button" aria-pressed="false">Dokumente</button><button id="show-settings" type="button" aria-pressed="false">Einstellungen</button></nav>
+    <section id="search-view" aria-labelledby="search-title">
+      <p class="eyebrow">FINDEN STATT DURCHSUCHEN</p><h1 id="search-title">Deine Dokumente.<br>Eine Suche.</h1>
+      <p class="intro">Suche nach Wörtern oder setze eine Wortgruppe in Anführungszeichen.</p>
+      <form id="search-form">
+        <label for="query">Was suchst Du?</label>
+        <div class="search-bar"><input id="query" name="q" type="search" placeholder='z. B. Haftpflicht oder "Versicherungsschein"' maxlength="1000" required><button type="submit">Suchen</button></div>
+        <details><summary>Filter und Sortierung</summary><div class="filters">
+          <label>Geändert ab<input id="after" type="date"></label><label>Geändert bis<input id="before" type="date"></label>
+          <label>Sortierung<select id="sort"><option value="relevance">Relevanz</option><option value="modified">Zuletzt geändert</option></select></label>
+        </div><p class="hint">Dateidaten beziehen sich auf die Änderung der Datei. Datumsfilter verwenden UTC.</p></details>
+      </form>
+      <p id="message" role="status" aria-live="polite">Dein Suchindex wird beim Start automatisch abgeglichen.</p>
+      <div id="results" aria-busy="false"></div>
+      <nav id="pagination" aria-label="Ergebnisseiten" hidden><button id="previous" type="button">Zurück</button><span id="page-label"></span><button id="next" type="button">Weiter</button></nav>
+    </section>
+    <section id="documents-view" aria-labelledby="documents-title" hidden>
+      <p class="eyebrow">DEIN ARCHIV IM ÜBERBLICK</p><h1 id="documents-title" tabindex="-1">Alle Dokumente.</h1>
+      <p class="intro">Sieh nach, welche PDFs bereits durchsuchbar sind und welche noch verarbeitet werden.</p>
+      <form id="documents-form">
+        <label for="document-path">Dateiname oder Pfad</label>
+        <div class="search-bar"><input id="document-path" type="search" maxlength="1000" placeholder="z. B. Versicherung"><button type="submit">Filtern</button></div>
+        <div class="filters document-filters">
+          <label>Status<select id="document-status"><option value="">Alle Dokumente</option><option value="ready">Verarbeitet</option><option value="queued">Wartet</option><option value="processing">In Verarbeitung</option><option value="error">Fehlgeschlagen</option></select></label>
+          <label>Sortierung<select id="document-sort"><option value="path">Dateipfad A–Z</option><option value="modified">Zuletzt geändert</option></select></label>
+        </div>
+      </form>
+      <p id="documents-message" role="status" aria-live="polite"></p>
+      <div id="documents-results" aria-busy="false"></div>
+      <nav id="documents-pagination" aria-label="Dokumentseiten" hidden><button id="documents-previous" type="button">Zurück</button><span id="documents-page-label"></span><button id="documents-next" type="button">Weiter</button></nav>
+    </section>
+    <section id="settings-view" aria-labelledby="settings-title" hidden>
+      <p class="eyebrow">DEIN ARCHIV, DEIN TAKT</p><h1 id="settings-title">Einstellungen.</h1>
+      <h2>Eingebundenes Archiv</h2>
+      <dl class="settings-paths"><dt>Archivverzeichnis</dt><dd id="settings-root">Wird geladen …</dd><dt>Speicherort des Index</dt><dd id="settings-data">Wird geladen …</dd></dl>
+      <p id="settings-source" class="hint"></p>
+      <p class="hint">In Docker sind dies die Pfade innerhalb des Containers. Deinen NAS-Ordner legst Du über die Verzeichniseinbindung fest. Die Originaldateien bleiben unverändert.</p>
+      <form id="settings-form">
+        <h2>Automatischer Abgleich</h2>
+        <label class="checkbox-label"><input id="settings-auto" type="checkbox">Archiv regelmäßig abgleichen</label>
+        <label for="settings-minutes">Intervall in Minuten</label><input id="settings-minutes" type="number" min="1" max="10080" step="1" value="15" required aria-describedby="settings-interval-hint">
+        <p id="settings-interval-hint" class="hint">1 Minute bis 7 Tage. Ohne automatischen Abgleich kannst Du jederzeit „Jetzt abgleichen“ verwenden. Beim Start wird das Archiv einmal geprüft.</p>
+        <button id="settings-save" type="submit" disabled>Speichern</button>
+      </form>
+      <p id="settings-message" role="status" aria-live="polite"></p>
+    </section>
+    </div>
+    <aside aria-labelledby="archive-title"><h2 id="archive-title">Archivstatus</h2><p id="archive-status" role="status">Status wird geladen …</p><p id="scan-status" class="hint"></p>
+      <p id="queue-status" role="status" class="hint"></p><p id="processing-status" class="hint"></p>
+      <progress id="processing-progress" aria-label="Fortschritt des aktuellen Dokuments" hidden></progress>
+      <button id="scan" type="button" class="secondary">Jetzt abgleichen</button><button id="verify" type="button" class="secondary">Alle Inhalte prüfen</button>
+      <details id="failures-panel" hidden><summary>Fehlgeschlagene Dokumente</summary><ul id="failures"></ul></details>
+      <p class="hint">Die Originaldateien bleiben unverändert. Scans und fotografierte Seiten werden lokal erkannt.</p>
+    </aside>
+  </main>
+  <dialog id="document-text-dialog" aria-labelledby="document-text-title">
+    <div class="text-dialog-header"><h2 id="document-text-title">Gespeicherter Text</h2><button id="document-text-close" class="secondary" type="button" autofocus>Schließen</button></div>
+    <p id="document-text-path" class="path"></p>
+    <p class="hint">Dies ist der gespeicherte Text aus dem Index, mit den ursprünglichen Zeilenumbrüchen.</p>
+    <nav class="text-page-navigation" aria-label="Textseiten">
+      <button id="document-text-previous" type="button">Zurück</button>
+      <form id="document-text-page-form"><label for="document-text-page">Seite</label><input id="document-text-page" type="number" min="1" step="1" required><span id="document-text-total"></span><button type="submit" class="secondary">Anzeigen</button></form>
+      <button id="document-text-next" type="button">Weiter</button>
+    </nav>
+    <p id="document-text-message" role="status" aria-live="polite"></p>
+    <p id="document-text-empty" class="hint" hidden>Für diese Seite ist kein Text gespeichert.</p>
+    <pre id="document-text-content" tabindex="0" aria-label="Gespeicherter Seitentext" aria-busy="false"></pre>
+  </dialog>
+  <footer><span>Lokale Suche · Prototyp</span><a href="https://github.com/Lauryx-star/AgenticArchive" target="_blank" rel="noopener noreferrer">Projekt und Quellcode</a></footer>
+</body>
+</html>
