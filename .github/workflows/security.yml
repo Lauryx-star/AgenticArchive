@@ -1,0 +1,161 @@
+name: Security
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  schedule:
+    - cron: '23 6 * * 1'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  go:
+    name: Go vulnerabilities
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      CGO_ENABLED: '1'
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@v1.8.0
+      - name: Check all dependencies, including unreachable vulnerabilities
+        working-directory: cmd/agenticarchive
+        run: govulncheck -scan=module -tags=sqlite_fts5
+      - name: Check imported vulnerable packages with SQLite FTS5
+        run: govulncheck -scan=package -tags=sqlite_fts5 ./...
+
+  static:
+    name: Static security analysis
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          persist-credentials: false
+      - name: Fetch pinned upstream security rules
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          repository: semgrep/semgrep-rules
+          ref: a84ff9cc2453ca91d581380de4b8b3f272f6f4be # 2026-09-22
+          path: .security-rules
+          persist-credentials: false
+          sparse-checkout: |
+            go/lang/security
+            javascript/lang/security
+            python/lang/security
+      - name: Install Semgrep
+        run: |
+          python3 -m venv "$RUNNER_TEMP/semgrep"
+          "$RUNNER_TEMP/semgrep/bin/python" -m pip install 'semgrep==1.179.0'
+      - name: Test security gate behavior
+        run: '"$RUNNER_TEMP/semgrep/bin/python" scripts/test-security-workflow.py'
+      - name: Check Go, JavaScript and Python security rules
+        run: |
+          "$RUNNER_TEMP/semgrep/bin/semgrep" scan \
+            --error --strict --disable-version-check --metrics=off \
+            --disable-nosem \
+            --config .security-rules/go/lang/security \
+            --config .security-rules/javascript/lang/security \
+            --config .security-rules/python/lang/security \
+            --exclude .security-rules .
+
+  repository:
+    name: Repository vulnerabilities, secrets and configuration
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          persist-credentials: false
+      - name: Install checksum-verified Trivy
+        working-directory: ${{ runner.temp }}
+        run: |
+          curl --fail --silent --show-error --location --retry 3 \
+            -o trivy.tar.gz https://github.com/aquasecurity/trivy/releases/download/v0.75.0/trivy_0.75.0_Linux-64bit.tar.gz
+          echo 'c6e65abddb348e25f10549df887045629cf28cc72453cd1c63acb717316b3f3f  trivy.tar.gz' | sha256sum --check --strict
+          mkdir -p trivy-bin
+          tar -xzf trivy.tar.gz -C trivy-bin trivy
+          echo "$RUNNER_TEMP/trivy-bin" >> "$GITHUB_PATH"
+          ./trivy-bin/trivy --version
+      - name: Check repository at every supported severity
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          for path in Path(".").rglob("*"):
+              if ".git" in path.parts or not path.is_file():
+                  continue
+              if re.search(r"(?:trivy|tfsec):ignore:", path.read_text(errors="replace")):
+                  raise SystemExit(f"Inline scanner suppression is not allowed: {path}")
+          PY
+          trap 'cat "$RUNNER_TEMP/trivy-errors.log" >&2' EXIT
+          trivy --config /dev/null fs \
+            --db-repository ghcr.io/aquasecurity/trivy-db:2 \
+            --checks-bundle-repository ghcr.io/aquasecurity/trivy-checks:2 \
+            --scanners vuln,secret,misconfig --exit-code 1 \
+            --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL \
+            --secret-config '' \
+            --ignorefile /dev/null \
+            --format table --timeout 10m . 2> "$RUNNER_TEMP/trivy-errors.log"
+          if grep -Eq $'\t(ERROR|FATAL)\t' "$RUNNER_TEMP/trivy-errors.log"; then
+            exit 1
+          fi
+
+  container:
+    name: Container vulnerabilities
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          persist-credentials: false
+      - name: Install checksum-verified Trivy
+        working-directory: ${{ runner.temp }}
+        run: |
+          curl --fail --silent --show-error --location --retry 3 \
+            -o trivy.tar.gz https://github.com/aquasecurity/trivy/releases/download/v0.75.0/trivy_0.75.0_Linux-64bit.tar.gz
+          echo 'c6e65abddb348e25f10549df887045629cf28cc72453cd1c63acb717316b3f3f  trivy.tar.gz' | sha256sum --check --strict
+          mkdir -p trivy-bin
+          tar -xzf trivy.tar.gz -C trivy-bin trivy
+          echo "$RUNNER_TEMP/trivy-bin" >> "$GITHUB_PATH"
+          ./trivy-bin/trivy --version
+      - name: Build local image without publishing or registry credentials
+        run: docker build --pull --tag agenticarchive:security .
+      - name: Check runtime OS and application dependencies at every supported severity
+        run: |
+          trivy --config /dev/null image \
+            --db-repository ghcr.io/aquasecurity/trivy-db:2 \
+            --image-src docker --scanners vuln --exit-code 1 \
+            --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL \
+            --ignorefile /dev/null \
+            --format table --timeout 10m agenticarchive:security
+
+  gate:
+    name: Security gate
+    needs: [go, static, repository, container]
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    permissions: {}
+    steps:
+      - name: Require every security job to succeed
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          printf '%s\n' "$RESULTS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+          printf '%s\n' "$RESULTS" | jq --exit-status \
+            'length == 4 and all(.[]; .result == "success")'
