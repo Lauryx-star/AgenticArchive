@@ -20,7 +20,18 @@ ARCHIVE_PATH=/absolute/path/to/pdfs docker compose up --build -d
 
 Open <http://localhost:8080>. The default Compose configuration exposes the UI on
 the local machine only. For NAS access, explicitly configure a LAN-accessible
-port binding or a reverse proxy. This prototype has no login; use a trusted network.
+port binding or a reverse proxy with HTTPS. Web UI, search, stored text, PDFs and
+administrative API operations require authentication. Before the first account
+exists, the archive is locked. Open the UI and create your administrator account
+using the one-time setup code:
+
+```sh
+docker compose exec -T agenticarchive cat /data/setup-code.txt
+```
+
+Choose your username and a password of at least 15 characters. There is no default
+password. The setup code is removed after successful setup and cannot create a
+second account. For local development the code is in `<data>/setup-code.txt`.
 
 Source PDFs are mounted read-only. The index is stored in the persistent
 `archive-data` volume. The process runs as UID/GID 10001; source folders and files
@@ -69,6 +80,67 @@ or processing already queued PDFs. The next periodic wait starts after a scan
 finishes, and changing the interval resets that wait. A running scan is allowed
 to finish. Container paths are read-only in the UI; change source bind mounts
 through Docker configuration. Appearance remains a per-browser preference.
+
+## Access protection
+
+The first account is an administrator. Identity records already carry a stable
+user ID and a role, and handlers enforce explicit permissions on the server.
+`admin` can read documents, manage settings and users, and trigger scans/retries/OCR.
+The `reader` role can read/search documents and open PDFs and stored text, but
+cannot read deployment settings or change them, trigger scans or retry OCR.
+The Settings view is available to every user. “My account” allows changing one's
+own password, requiring the current password. Administrator-only sections retain
+the archive settings and add user management: list accounts, create users with
+an initial password, change roles and assign a new password to another user.
+An administrator changes their own password through “My account”, rather than
+bypassing current-password verification through the reset endpoint.
+At least one administrator must remain, even during concurrent role changes.
+Usernames are immutable and case-sensitive. Directory-specific permissions and
+account deletion are not implemented yet.
+
+After a password change or administrative reset, all sessions for the affected
+user are revoked. A self-service change returns the user to login with a success
+message. Administrative resets leave the administrator's session intact and need
+no email delivery: share the assigned password directly with the intended user.
+An in-flight login verified with the previous password cannot create a new session
+after the change commits. Roles are resolved on every request; the UI refreshes
+when its regular status check sees a changed role.
+
+Passwords are salted and stored as PBKDF2-HMAC-SHA256 hashes (600,000 iterations),
+never as plaintext. Accounts and hashed session tokens live in `access.db` in the
+persistent data directory, separately from the document index. Back up this file
+alongside `archive.db`; rebuilding the index should retain the account database.
+Sessions last at most 12 hours, survive server restarts and are invalidated by
+logout. Session cookies are HttpOnly and SameSite=Strict. Mutating API calls need
+an `X-CSRF-Token` obtained from `GET /api/auth/me`; cross-origin browser mutations
+are rejected. Login, setup, account creation and password changes/resets share serialized
+password work globally limited to
+10 attempts per minute. This basic limit resets on restart and applies collectively
+to all clients, including clients behind a proxy.
+
+HTTP is suitable for local loopback development. For LAN or remote access, use
+an HTTPS reverse proxy and set `AUTH_SECURE_COOKIE=true` in `.env` (or use
+`serve -secure-cookie`). The proxy must preserve the public Host header. Forwarded
+headers are deliberately not used to decide whether cookies are secure. Enabling
+this setting requires accessing the UI over HTTPS. Authentication does not itself
+encrypt HTTP traffic. The application still binds only to loopback by default
+in Compose.
+
+To recover or change an administrator password, supply a private password file
+through stdin (one optional final newline is ignored):
+
+```sh
+docker compose exec -T agenticarchive reset-admin -username admin < /path/to/private/password.txt
+# Local equivalent:
+./bin/agenticarchive reset-admin -data ./data -username admin < /path/to/private/password.txt
+```
+
+Use the username chosen during setup. This local operation requires access to
+the server/data directory, replaces the password and revokes all sessions for
+that administrator. It leaves documents and scan settings intact. Passwords are
+not accepted as command-line arguments or printed. Store the input file privately
+and remove it after use. CLI scan/search/source acceptance remain local operations
+controlled by operating-system access, rather than web sessions.
 
 ## Command line
 
@@ -146,6 +218,30 @@ The source directory remains read-only; no marker file is written into it.
 
 ## API
 
+All archive endpoints below require a valid session cookie. Settings endpoints
+and all scan/retry operations additionally require the corresponding administrative
+permission. Authentication endpoints are:
+
+- `GET /api/auth/state` — public; reports only whether initial setup is needed.
+- `POST /api/auth/setup` — JSON `username`, `password`, `setup_code`; first admin only.
+- `POST /api/auth/login` — JSON `username`, `password`; sets session cookies.
+- `GET /api/auth/me` — current user, permissions and CSRF token.
+- `POST /api/auth/logout` — revokes the current session; requires CSRF token.
+- `PUT /api/auth/password` — JSON `current_password`, `new_password`; changes the
+  caller's own password and revokes their sessions.
+- `GET /api/users` — administrators only; returns account IDs, usernames and roles.
+- `POST /api/users` — administrators only; JSON `username`, `password`, `role`
+  (`reader` or `admin`); creates an account, returning HTTP 201.
+- `PUT /api/users/{id}/role` — administrators only; JSON `role`; preserves the last
+  administrator and enforces the actor's current role inside the transaction.
+- `PUT /api/users/{id}/password` — administrators only; JSON `password`; assigns a
+  new password to another account and revokes that account's sessions.
+
+Every mutating authenticated endpoint requires the session's CSRF header.
+User-management/password JSON rejects unknown fields; usernames are limited to
+64 UTF-8 bytes and passwords to 15 or more Unicode characters, at most 1024 bytes.
+
+
 - `GET /api/search?q=insurance&page=1&limit=20&sort=relevance`
   (`after`/`before`: inclusive UTC file modification dates, `YYYY-MM-DD`;
   `sort`: `relevance` or `modified`; maximum page size: 100)
@@ -196,5 +292,5 @@ requirements and is not a custom mandatory attribution clause.
 - Validate OCR accuracy and memory usage on representative phone-photo PDFs.
 - Test `linux/amd64` on a Synology DS218+ (the development Mac uses ARM64).
 - Expand document management and OCR quality controls beyond forced OCR/retry.
-- Add authentication for deployments outside a trusted local environment.
+- Consider directory-level permissions and further account management controls.
 - Add optional agent access and provider-independent LLM integration later.

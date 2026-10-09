@@ -34,7 +34,13 @@ and explicit retry are available, but selective OCR on mixed pages needs further
 work. Synthetic scan fixtures do not establish accuracy on phone photos.
 
 Creation-date support depends on filesystem capabilities. Semantic search,
-document dates, authentication and an agent adapter are separate milestones.
+document dates, directory-level access and an agent adapter are separate milestones.
+Authentication now protects the UI and API, including PDFs and stored text.
+First-run setup creates one administrator. Administrators can create more accounts,
+assign administrator/reader roles and replace another user's password through the
+settings UI. Every user can change their own password with current-password
+verification. Password changes revoke the affected sessions; the last administrator
+cannot be demoted. Directory-level scope remains undecided.
 An agent must receive source paths and page numbers, and later treat document
 content as untrusted evidence rather than instructions.
 

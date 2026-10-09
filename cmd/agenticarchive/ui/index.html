@@ -6,9 +6,11 @@
   <title>AgenticArchive · PDF-Suche</title>
   <link rel="stylesheet" href="/style.css">
   <script src="/app.js" defer></script>
+  <script src="/users.js" defer></script>
 </head>
 <body>
   <header><a class="brand" href="/">AgenticArchive<span>Dein lokales PDF-Archiv</span></a>
+    <div id="account-menu" hidden><span id="account-name"></span><button id="logout" type="button" class="secondary">Abmelden</button></div>
     <label class="theme">Darstellung<select id="theme"><option value="auto">Automatisch</option><option value="light">Hell</option><option value="dark">Dunkel</option></select></label>
   </header>
   <main>
@@ -45,7 +47,21 @@
       <nav id="documents-pagination" aria-label="Dokumentseiten" hidden><button id="documents-previous" type="button">Zurück</button><span id="documents-page-label"></span><button id="documents-next" type="button">Weiter</button></nav>
     </section>
     <section id="settings-view" aria-labelledby="settings-title" hidden>
-      <p class="eyebrow">DEIN ARCHIV, DEIN TAKT</p><h1 id="settings-title">Einstellungen.</h1>
+      <p class="eyebrow">DEIN KONTO UND DEIN ARCHIV</p><h1 id="settings-title">Einstellungen.</h1>
+      <section class="settings-section" aria-labelledby="my-account-title">
+        <h2 id="my-account-title">Mein Konto</h2><p id="my-account-description"></p>
+        <details class="password-details"><summary>Mein Passwort ändern</summary>
+          <form id="my-password-form" class="account-form">
+            <label for="current-password">Bisheriges Passwort</label><input id="current-password" type="password" autocomplete="current-password" maxlength="1024" required>
+            <label for="new-password">Neues Passwort</label><input id="new-password" type="password" autocomplete="new-password" minlength="15" maxlength="1024" required aria-describedby="my-password-hint">
+            <label for="new-password-confirm">Neues Passwort wiederholen</label><input id="new-password-confirm" type="password" autocomplete="new-password" minlength="15" maxlength="1024" required>
+            <p id="my-password-hint" class="hint">Mindestens 15 Zeichen. Danach wirst Du auf allen Geräten abgemeldet und meldest Dich mit dem neuen Passwort an.</p>
+            <button id="my-password-save" type="submit">Mein Passwort ändern</button>
+          </form>
+          <p id="my-password-message" role="status" aria-live="polite"></p>
+        </details>
+      </section>
+      <div id="archive-settings" class="settings-section" hidden>
       <h2>Eingebundenes Archiv</h2>
       <dl class="settings-paths"><dt>Archivverzeichnis</dt><dd id="settings-root">Wird geladen …</dd><dt>Speicherort des Index</dt><dd id="settings-data">Wird geladen …</dd></dl>
       <p id="settings-source" class="hint"></p>
@@ -58,6 +74,24 @@
         <button id="settings-save" type="submit" disabled>Speichern</button>
       </form>
       <p id="settings-message" role="status" aria-live="polite"></p>
+      </div>
+      <section id="user-management" class="settings-section" aria-labelledby="users-title" hidden>
+        <h2 id="users-title">Benutzerverwaltung</h2>
+        <p class="hint">Benutzer mit Leserechten können suchen, PDFs und gespeicherten Text ansehen und ihr eigenes Passwort ändern. Administratoren verwalten zusätzlich das Archiv, die Verarbeitung und alle Benutzerkonten.</p>
+        <div id="users-list" aria-busy="false"></div>
+        <p id="users-message" role="status" aria-live="polite"></p>
+        <details id="create-user-details"><summary>Benutzerkonto hinzufügen</summary>
+          <form id="create-user-form" class="account-form">
+            <label for="create-username">Benutzername</label><input id="create-username" type="text" autocomplete="off" maxlength="64" required>
+            <label for="create-role">Berechtigung</label><select id="create-role"><option value="reader">Benutzer · Lesen</option><option value="admin">Administrator</option></select>
+            <label for="create-password">Passwort</label><input id="create-password" type="password" autocomplete="new-password" minlength="15" maxlength="1024" required aria-describedby="create-user-hint">
+            <label for="create-password-confirm">Passwort wiederholen</label><input id="create-password-confirm" type="password" autocomplete="new-password" minlength="15" maxlength="1024" required>
+            <p id="create-user-hint" class="hint">Mindestens 15 Zeichen. Gib das Passwort direkt an die Person weiter. Sie kann es nach der Anmeldung selbst ändern.</p>
+            <button id="create-user-save" type="submit">Benutzerkonto anlegen</button>
+          </form>
+          <p id="create-user-message" role="status" aria-live="polite"></p>
+        </details>
+      </section>
     </section>
     </div>
     <aside aria-labelledby="archive-title"><h2 id="archive-title">Archivstatus</h2><p id="archive-status" role="status">Status wird geladen …</p><p id="scan-status" class="hint"></p>
@@ -68,6 +102,17 @@
       <p class="hint">Die Originaldateien bleiben unverändert. Scans und fotografierte Seiten werden lokal erkannt.</p>
     </aside>
   </main>
+  <dialog id="user-password-dialog" aria-labelledby="user-password-title">
+    <div class="text-dialog-header"><h2 id="user-password-title">Neues Passwort vergeben</h2><button id="user-password-close" class="secondary" type="button" autofocus>Schließen</button></div>
+    <p id="user-password-name"></p>
+    <form id="reset-password-form" class="account-form">
+      <label for="reset-password">Neues Passwort</label><input id="reset-password" type="password" autocomplete="new-password" minlength="15" maxlength="1024" required aria-describedby="reset-password-hint">
+      <label for="reset-password-confirm">Neues Passwort wiederholen</label><input id="reset-password-confirm" type="password" autocomplete="new-password" minlength="15" maxlength="1024" required>
+      <p id="reset-password-hint" class="hint">Mindestens 15 Zeichen. Alle Sitzungen dieses Benutzers werden abgemeldet. Gib das neue Passwort direkt an die Person weiter.</p>
+      <button id="reset-password-save" type="submit">Neues Passwort vergeben</button>
+    </form>
+    <p id="reset-password-message" role="status" aria-live="polite"></p>
+  </dialog>
   <dialog id="document-text-dialog" aria-labelledby="document-text-title">
     <div class="text-dialog-header"><h2 id="document-text-title">Gespeicherter Text</h2><button id="document-text-close" class="secondary" type="button" autofocus>Schließen</button></div>
     <p id="document-text-path" class="path"></p>
