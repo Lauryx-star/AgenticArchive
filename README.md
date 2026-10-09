@@ -24,6 +24,7 @@ docker compose up --build -d
 ```
 
 The template selects local Ollama; install/run it and download `qwen3:8b` first,
+create `agenticarchive-qwen3:8b` with `ollama create agenticarchive-qwen3:8b -f ollama/Modelfile`,
 or select OpenAI and save its key in `secrets/openai-api-key.txt`. For archive-only
 operation, leave `COMPOSE_PROFILES` and `AGENT_URL` empty. See [agent setup](docs/agent.md).
 

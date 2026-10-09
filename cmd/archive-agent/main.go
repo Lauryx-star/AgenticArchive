@@ -33,7 +33,7 @@ func main() {
 	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil {
 		log.Fatal("Ungültige Archiv-Adresse.")
 	}
-	client := &http.Client{Timeout: 35 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	client := &http.Client{Timeout: agent.ProviderTimeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	runner := &agent.Runner{Client: client, Model: config.model, APIKey: config.key, APIURL: config.endpoint, MCPURL: mcp, Provider: config.provider}
 	slots := make(chan struct{}, 2)
 	mux := http.NewServeMux()
@@ -76,7 +76,7 @@ func main() {
 			fail(400, err.Error())
 			return
 		}
-		ctx, cancel := context.WithTimeout(r.Context(), 110*time.Second)
+		ctx, cancel := context.WithTimeout(r.Context(), agent.ResearchTimeout)
 		defer cancel()
 		answer, err := runner.Run(ctx, readToken, request)
 		if err != nil {
@@ -89,7 +89,7 @@ func main() {
 	if listen == "" {
 		listen = "0.0.0.0:8081"
 	}
-	server := &http.Server{Addr: listen, Handler: mux, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 120 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16 << 10}
+	server := &http.Server{Addr: listen, Handler: mux, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: agent.ResearchTimeout + 10*time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16 << 10}
 	fmt.Printf("Archiv-Agent bereit auf %s (Modell %s)\n", listen, config.model)
 	log.Fatal(server.ListenAndServe())
 }

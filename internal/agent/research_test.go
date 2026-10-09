@@ -130,7 +130,9 @@ func researchClient(t *testing.T, model func(string) string, readCalls *int) *ht
 				Params struct {
 					Name      string `json:"name"`
 					Arguments struct {
-						Query string `json:"query"`
+						Query      string `json:"query"`
+						DocumentID int64  `json:"document_id"`
+						Offset     int    `json:"offset"`
 					} `json:"arguments"`
 				} `json:"params"`
 			}
@@ -146,7 +148,8 @@ func researchClient(t *testing.T, model func(string) string, readCalls *int) *ht
 				text := `{"total":0,"hits":[]}`
 				if request.Params.Name == "read_page" {
 					*readCalls++
-					text = `{"document_id":7,"page":1,"path":"Stromrechnung.pdf","text":"EON Rechnungsdatum 12.09.2026"}`
+					data, _ := json.Marshal(map[string]any{"document_id": request.Params.Arguments.DocumentID, "page": 1, "path": "Stromrechnung.pdf", "text": "EON Rechnungsdatum 12.09.2026", "offset": request.Params.Arguments.Offset})
+					text = string(data)
 				} else if request.Params.Arguments.Query == "EON" {
 					text = `{"total":1,"hits":[{"document_id":7,"page":1,"path":"Stromrechnung.pdf"}]}`
 				}

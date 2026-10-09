@@ -62,14 +62,19 @@ to use Metal GPU acceleration; the archive and agent can remain in Docker.
 Qwen3 8B is a starting point for an M3 Pro with 18 GB unified memory; Qwen3 4B
 is an alternative if memory pressure or response latency is too high. Actual
 memory use also depends on context size and other running applications.
-Download a local model with `ollama pull qwen3:8b`. Do not select a cloud tag
+Download the base model with `ollama pull qwen3:8b`, then create the archive
+configuration with `ollama create agenticarchive-qwen3:8b -f ollama/Modelfile`.
+It shares the base model weights and sets a 16,384-token context and temperature
+0.2. A larger context needs more memory; the actual allocation can be checked
+with `ollama ps`. The plain Qwen3 default can have only 4,096 tokens on this Mac,
+which is too small for longer research histories. Do not select a cloud tag
 if you want archive text to remain local.
 
 Set these values in `.env`:
 
 ```dotenv
 LLM_PROVIDER=ollama
-OPENAI_MODEL=qwen3:8b
+OPENAI_MODEL=agenticarchive-qwen3:8b
 OPENAI_API_URL=http://host.docker.internal:11434/v1/responses
 ```
 
@@ -93,7 +98,7 @@ Compatibility must include tool-call/result replay; support for Chat Completions
 alone is insufficient. A synthetic Qwen3 8B tool-call/result/answer exchange has
 been verified locally with Ollama 0.40.2; answer accuracy on real archive research
 has not been validated. Local
-generation shares the existing 35-second per-call and 110-second research limits;
+generation shares the 60-second per-call and 240-second research limits;
 slow models may time out. The agent rejects answers that never call an archive
 tool, including servers that ignore the requested tool choice.
 
@@ -162,10 +167,11 @@ Chat history lives only in the current browser tab's memory and is cleared by
 reload or navigation away from the page. At most 24 alternating user/assistant
 messages and 48 KB of history are accepted. A question is at most 4,000 characters
 in the UI. Two agent requests can run concurrently. A request lasts at most
-110 seconds, uses at most eight Responses calls and 16 archive tool calls, and
+240 seconds, uses at most 24 Responses calls (one reserved for finalization)
+and 64 archive tool calls, and
 has bounded input/output sizes. HTTP/provider failures are not automatically
 retried. In Ollama mode, an initial answer without tool calls is discarded and
-receives one explicit tool-use correction within the same eight-call budget.
+receives one explicit tool-use correction within the same model-call budget.
 An answer that merely announces more research is not returned as a final answer.
 The agent allows up to two research corrections within the same budget. After
 one empty full-text query, it requires another distinct query or a filename
@@ -177,6 +183,19 @@ OR and wildcards are unsupported. A failed tool or discovered candidates with
 no read source pages also trigger recovery. For candidates, the agent supplies
 explicit document/page arguments for up to three next read calls, rather than
 only asking the model generally to continue.
+
+One model call is reserved for a tool-free partial summary when round, time,
+input or tool limits are reached. Only actually read page text is used for that
+summary (up to 32 KB); search snippets are excluded. The response receives a
+server-generated incomplete-result notice. If no page was read, the agent still
+returns an explicit failure. Repeating the same canonical tool arguments more
+than twice also ends research with this partial-summary path. Input is capped
+at 40 KB for Ollama and 200 KB for other providers. Read identities still expire
+after five minutes and are revoked when the request finishes.
+
+The agent always addresses the user informally in German. Chronological lists
+use document dates, amounts, amount types and page citations; missing facts
+remain unknown.
 
 The first model response must call a read tool. The agent only exposes the three
 allowlisted archive tools, treats document text as untrusted evidence and receives
@@ -205,10 +224,15 @@ The opt-in local Ollama integration uses the real runner and authenticated MCP
 endpoint with an isolated, indexed archive containing two synthetic invoices:
 
 ```sh
-OLLAMA_TEST_URL=http://127.0.0.1:11434/v1/responses go test -tags sqlite_fts5 ./cmd/agenticarchive -run TestLiveOllamaResearch -v
+OLLAMA_TEST_URL=http://127.0.0.1:11434/v1/responses OLLAMA_TEST_MODEL=agenticarchive-qwen3:8b go test -tags sqlite_fts5 ./cmd/agenticarchive -run TestLiveOllamaResearch -v
 ```
 
 It verifies that both pages are actually read and that the newer invoice date
 appears in the answer. It is skipped by default and never accesses the deployed
 archive or real user credentials. Real archive discovery and answer accuracy
 still depend on model behavior and the research limits.
+
+The opt-in `TestLiveOllamaChronologicalAmounts` also verifies dates and amounts
+in chronological order with two read synthetic invoice sources. Budget tests
+cover research beyond the previous eight rounds, repeated-call termination and
+grounded partial results instead of discarding all findings.

@@ -22,7 +22,7 @@ func chatRoutes(mux *http.ServeMux, auth *authService, store *archive.Store) {
 	key, keyErr := agent.Secret("AGENT_SERVICE_KEY")
 	u, err := url.Parse(endpoint)
 	configured := keyErr == nil && len(key) >= 32 && err == nil && u.Host != "" && u.User == nil && u.RawQuery == "" && u.Fragment == "" && (u.Scheme == "http" || u.Scheme == "https")
-	client := &http.Client{Timeout: 115 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	client := &http.Client{Timeout: agent.ResearchTimeout + 5*time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	slots := make(chan struct{}, 2)
 	mux.HandleFunc("GET /api/chat/state", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, map[string]bool{"configured": configured}) })
 	mux.HandleFunc("POST /api/chat", func(w http.ResponseWriter, r *http.Request) {
@@ -105,7 +105,7 @@ func chatRoutes(mux *http.ServeMux, auth *authService, store *archive.Store) {
 			return
 		}
 		var answer agent.Answer
-		if json.Unmarshal(data, &answer) != nil || strings.TrimSpace(answer.Text) == "" || len(answer.Text) > 32000 || len(answer.Sources) > 16 {
+		if json.Unmarshal(data, &answer) != nil || strings.TrimSpace(answer.Text) == "" || len(answer.Text) > 32000 || len(answer.Sources) > agent.MaxToolCalls {
 			apiError(w, 502, fmt.Errorf("Agent-Antwort ungültig."))
 			return
 		}

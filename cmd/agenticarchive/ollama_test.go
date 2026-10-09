@@ -19,6 +19,12 @@ import (
 
 // Opt-in: only synthetic invoices are exposed to a locally running model.
 func TestLiveOllamaResearchReadsLatestSyntheticInvoice(t *testing.T) {
+	testLiveOllamaResearch(t, false)
+}
+
+func TestLiveOllamaChronologicalAmounts(t *testing.T) { testLiveOllamaResearch(t, true) }
+
+func testLiveOllamaResearch(t *testing.T, chronological bool) {
 	endpoint := os.Getenv("OLLAMA_TEST_URL")
 	if endpoint == "" {
 		t.Skip("set OLLAMA_TEST_URL to run the local model integration")
@@ -29,15 +35,15 @@ func TestLiveOllamaResearchReadsLatestSyntheticInvoice(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = db.Exec(`UPDATE documents SET path='2025-Stromrechnung.pdf' WHERE id=1;
-UPDATE pages SET text='EON Stromrechnung. Rechnungsdatum 10.05.2025. Der tatsächliche Erhalt ist nicht dokumentiert.' WHERE document_id=1;
+UPDATE pages SET text='EON Stromrechnung. Rechnungsdatum 10.05.2025. Bruttorechnungsbetrag 100,00 EUR. Der tatsächliche Erhalt ist nicht dokumentiert.' WHERE document_id=1;
 INSERT INTO documents(id,path,size,modified,fingerprint,status,pages) VALUES(2,'2026-Stromrechnung.pdf',19,'2026-10-07T00:00:00Z','invoice-2','ready',1);
-INSERT INTO pages(document_id,number,text,ocr) VALUES(2,1,'EON Stromrechnung. Rechnungsdatum 12.09.2026. Der tatsächliche Erhalt ist nicht dokumentiert.',0);
+INSERT INTO pages(document_id,number,text,ocr) VALUES(2,1,'EON Stromrechnung. Rechnungsdatum 12.09.2026. Bruttorechnungsbetrag 120,00 EUR. Der tatsächliche Erhalt ist nicht dokumentiert.',0);
 INSERT INTO page_search(rowid,text,path) SELECT p.id,p.text,d.path FROM pages p JOIN documents d ON d.id=p.document_id;`)
 	db.Close()
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 110*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), agent.ResearchTimeout)
 	defer cancel()
 	if err := f.a.store.SetupAdmin(ctx, "admin", authPassword); err != nil {
 		t.Fatal(err)
@@ -52,7 +58,7 @@ INSERT INTO page_search(rowid,text,path) SELECT p.id,p.text,d.path FROM pages p 
 	}
 	server := httptest.NewServer(f.h)
 	defer server.Close()
-	client := &http.Client{Timeout: 35 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }, Transport: liveOllamaTransport(func(r *http.Request) (*http.Response, error) {
+	client := &http.Client{Timeout: agent.ProviderTimeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }, Transport: liveOllamaTransport(func(r *http.Request) (*http.Response, error) {
 		response, err := http.DefaultTransport.RoundTrip(r)
 		if err != nil {
 			return nil, err
@@ -71,8 +77,16 @@ INSERT INTO page_search(rowid,text,path) SELECT p.id,p.text,d.path FROM pages p 
 		}
 		return response, err
 	})}
-	runner := agent.Runner{Client: client, Provider: "ollama", Model: "qwen3:8b", APIURL: endpoint, MCPURL: server.URL + "/mcp"}
-	answer, err := runner.Run(ctx, token, agent.Request{Messages: []agent.Message{{Role: "user", Content: "Wann habe ich die letzte Stromrechnung erhalten? Mein Anbieter ist EON"}}})
+	model := os.Getenv("OLLAMA_TEST_MODEL")
+	if model == "" {
+		model = "qwen3:8b"
+	}
+	question := "Wann habe ich die letzte Stromrechnung erhalten? Mein Anbieter ist EON"
+	if chronological {
+		question = "Gib mir bitte eine chronologische Auflistung aller Rechnungsbeträge meiner Stromrechnungen von EON"
+	}
+	runner := agent.Runner{Client: client, Provider: "ollama", Model: model, APIURL: endpoint, MCPURL: server.URL + "/mcp"}
+	answer, err := runner.Run(ctx, token, agent.Request{Messages: []agent.Message{{Role: "user", Content: question}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,6 +98,13 @@ INSERT INTO page_search(rowid,text,path) SELECT p.id,p.text,d.path FROM pages p 
 	}
 	if !readLatest || len(answer.Sources) != 2 || !(strings.Contains(answer.Text, "12.09.2026") || strings.Contains(answer.Text, "12. September 2026") || strings.Contains(answer.Text, "2026-09-12")) {
 		t.Fatalf("latest invoice not researched: %+v", answer)
+	}
+	if chronological {
+		older := strings.Index(answer.Text, "10.05.2025")
+		newer := strings.Index(answer.Text, "12.09.2026")
+		if older < 0 || newer < 0 || older >= newer || !strings.Contains(answer.Text, "100") || !strings.Contains(answer.Text, "120") || strings.Contains(answer.Text, " Sie ") || strings.Contains(answer.Text, " Ihnen") {
+			t.Fatalf("amounts, chronology or informal address missing: %s", answer.Text)
+		}
 	}
 	t.Logf("Synthetic research succeeded with %d read source pages", len(answer.Sources))
 }

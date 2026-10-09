@@ -1,0 +1,5 @@
+# Create: ollama create agenticarchive-qwen3:8b -f ollama/Modelfile
+# Reuses the installed Qwen3 weights; no second model download is required.
+FROM qwen3:8b
+PARAMETER num_ctx 16384
+PARAMETER temperature 0.2
