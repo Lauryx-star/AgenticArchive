@@ -112,3 +112,52 @@ INSERT INTO page_search(rowid,text,path) SELECT p.id,p.text,d.path FROM pages p 
 type liveOllamaTransport func(*http.Request) (*http.Response, error)
 
 func (f liveOllamaTransport) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func TestLiveOllamaCombinesPartialResearchWithoutTools(t *testing.T) { testLiveOllamaSummary(t, false) }
+func TestLiveOllamaCompactsAndCombinesPartialResearch(t *testing.T)  { testLiveOllamaSummary(t, true) }
+func testLiveOllamaSummary(t *testing.T, compact bool) {
+	endpoint := os.Getenv("OLLAMA_TEST_URL")
+	if endpoint == "" {
+		t.Skip("set OLLAMA_TEST_URL to run the local model integration")
+	}
+	model := os.Getenv("OLLAMA_TEST_MODEL")
+	if model == "" {
+		model = "qwen3:8b"
+	}
+	runner := agent.Runner{Client: &http.Client{Timeout: agent.ProviderTimeout, Transport: liveOllamaTransport(func(r *http.Request) (*http.Response, error) {
+		start := time.Now()
+		response, err := http.DefaultTransport.RoundTrip(r)
+		t.Logf("Synthetic context model call: %s, error: %v", time.Since(start), err)
+		return response, err
+	})}, Provider: "ollama", Model: model, APIURL: endpoint, MCPURL: "http://archive.invalid/mcp"}
+	ctx, cancel := context.WithTimeout(context.Background(), agent.ResearchTimeout)
+	defer cancel()
+	request := agent.Request{Mode: "summary", Messages: []agent.Message{
+		{Role: "user", Content: "Liste meine Stromrechnungen von 2025 auf"},
+		{Role: "assistant", Content: "Teilergebnis: Rechnungsdatum 10.05.2025, Bruttorechnungsbetrag 100,00 EUR [Dokument 1, Seite 1]. Weitere Rechnungen sind nicht ausgeschlossen.", Sources: []agent.Source{{DocumentID: 1, Page: 1}}},
+		{Role: "user", Content: "Jetzt die Rechnungen von 2026"},
+		{Role: "assistant", Content: "Teilergebnis: Rechnungsdatum 12.09.2026, Bruttorechnungsbetrag 120,00 EUR [Dokument 2, Seite 1]. Die Recherche ist unvollständig.", Sources: []agent.Source{{DocumentID: 2, Page: 1}}},
+		{Role: "user", Content: "Führe beide Teilergebnisse chronologisch zusammen und summiere die belegten Bruttorechnungsbeträge. Nenne weiterhin die Quellen und Recherche-Lücken."},
+	}}
+	if compact {
+		request.Messages[1].Content += "\n" + strings.Repeat("Hinweis: Dies ist nur ein Teilergebnis; weitere Rechnungen sind nicht ausgeschlossen.\n", 240)
+	}
+	answer, err := runner.Run(ctx, "unused-read-token", request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if compact && !answer.Compacted {
+		t.Fatal("large research context was not condensed")
+	}
+	t.Logf("Synthetic combined answer: %s", answer.Text)
+	first, second := strings.Index(answer.Text, "10.05.2025"), strings.Index(answer.Text, "12.09.2026")
+	if first < 0 || second <= first || !strings.Contains(answer.Text, "220") || !strings.Contains(answer.Text, "[Dokument 1, Seite 1]") || !strings.Contains(answer.Text, "[Dokument 2, Seite 1]") || len(answer.Sources) != 2 {
+		t.Fatalf("lost dates, totals or citations: %+v", answer)
+	}
+	if strings.Contains(answer.Text, "keine weiteren Rechnungen") || strings.Contains(answer.Text, "Netzbetreiber") {
+		t.Fatal("invented absence or research gap")
+	}
+	if strings.Contains(answer.Text, "Sie ") || strings.Contains(answer.Text, "Ihnen") {
+		t.Fatal("formal address")
+	}
+}

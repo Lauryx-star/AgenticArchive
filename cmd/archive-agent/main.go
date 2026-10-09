@@ -66,7 +66,7 @@ func main() {
 			return
 		}
 		var request agent.Request
-		decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10))
+		decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 512<<10))
 		decoder.DisallowUnknownFields()
 		if decoder.Decode(&request) != nil || decoder.Decode(new(any)) != io.EOF {
 			fail(400, "Ungültige Chat-Anfrage.")

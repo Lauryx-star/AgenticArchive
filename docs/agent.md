@@ -164,10 +164,30 @@ permissions have been implemented yet.** All readers currently read the same arc
 ## Chat limits and evidence
 
 Chat history lives only in the current browser tab's memory and is cleared by
-reload or navigation away from the page. At most 24 alternating user/assistant
-messages and 48 KB of history are accepted. A question is at most 4,000 characters
+reload or navigation away from the page. The browser carries a signed, user-bound
+working context containing successful answers and their source receipts. Each
+continuation still requires a current session and CSRF; a tampered context or
+one belonging to another user is rejected. Context expires after 12 hours of
+inactivity and is not encrypted or a durable conversation database.
+
+Choose **Im Archiv recherchieren** for new evidence, or **Bisherige Ergebnisse
+zusammenführen** for synthesis of previous partial results without archive tool
+calls. Sources remain linkable, and incomplete research remains incomplete.
+Failures preserve the previous context. No fixed twelve-question cutoff applies:
+above 12 KB of model text or 20 working messages, old exchanges are condensed
+into research memory while the visible transcript stays intact. Repeated lines
+are compacted with their multiplicity recorded. Cited result paragraphs are
+retained verbatim independently of model-generated context notes; at most 16 KB
+of such excerpts fit the working notebook. If that limit is exceeded, the
+request fails explicitly and the previous context and visible results remain
+available; further research then needs a new chat. Compression can
+lose detail; the UI announces it and original documents remain authoritative.
+The bounded working request accepts at most 24 messages / 96 KB of text, user messages at most 16 KB and assistant messages
+at most 32 KB, and 512 source references per message. Compression calls are
+additional to the research loop (at most thirty-two chunks and thirty-two merges per request),
+share the 240-second timeout, and may incur provider costs. A question is at most 4,000 characters
 in the UI. Two agent requests can run concurrently. A request lasts at most
-240 seconds, uses at most 24 Responses calls (one reserved for finalization)
+240 seconds; its research loop uses at most 24 Responses calls (one reserved for finalization)
 and 64 archive tool calls, and
 has bounded input/output sizes. HTTP/provider failures are not automatically
 retried. In Ollama mode, an initial answer without tool calls is discarded and
@@ -185,7 +205,7 @@ explicit document/page arguments for up to three next read calls, rather than
 only asking the model generally to continue.
 
 One model call is reserved for a tool-free partial summary when round, time,
-input or tool limits are reached. Only actually read page text is used for that
+input or tool limits are reached. Actually read page text and previous grounded partial answers are used for that
 summary (up to 32 KB); search snippets are excluded. The response receives a
 server-generated incomplete-result notice. If no page was read, the agent still
 returns an explicit failure. Repeating the same canonical tool arguments more

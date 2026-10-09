@@ -1,9 +1,10 @@
-let chatHistory = [], chatBusy = false, chatConfigured = false, chatStateRequest = 0;
+let chatContext = '', chatBusy = false, chatConfigured = false, chatStateRequest = 0;
 $('show-chat').addEventListener('click', () => switchView('chat'));
 function updateChatControls() {
   $('chat-question').disabled = chatBusy || !chatConfigured;
   $('chat-send').disabled = chatBusy || !chatConfigured;
   $('chat-new').disabled = chatBusy;
+  $('chat-mode').disabled = chatBusy || !chatConfigured;
   for (const button of document.querySelectorAll('[data-question]')) button.disabled = chatBusy || !chatConfigured;
 }
 async function loadChatState() {
@@ -39,20 +40,21 @@ function appendChatMessage(role, text, sources = []) {
   }
   $('chat-messages').append(card); return card;
 }
-for (const button of document.querySelectorAll('[data-question]')) button.addEventListener('click', () => { $('chat-question').value = button.dataset.question; $('chat-question').focus(); });
-$('chat-new').addEventListener('click', () => { if (chatBusy) return; chatHistory = []; $('chat-messages').replaceChildren(); $('chat-message').textContent = ''; $('chat-question').value = ''; if (chatConfigured) $('chat-question').focus(); });
+for (const button of document.querySelectorAll('[data-question]')) button.addEventListener('click', () => { $('chat-mode').value = 'research'; $('chat-question').value = button.dataset.question; $('chat-question').focus(); });
+$('chat-new').addEventListener('click', () => { if (chatBusy) return; chatContext = ''; $('chat-mode').value = 'research'; $('chat-messages').replaceChildren(); $('chat-message').textContent = ''; $('chat-question').value = ''; if (chatConfigured) $('chat-question').focus(); });
 $('chat-form').addEventListener('submit', async event => {
   event.preventDefault(); if (chatBusy || !chatConfigured) return;
   const question = $('chat-question').value.trim(); if (!question) return;
-  if (chatHistory.length >= 24) { $('chat-message').textContent = 'Bitte beginne einen neuen Chat.'; return; }
-  chatBusy = true; updateChatControls(); $('chat-messages').setAttribute('aria-busy', 'true'); $('chat-message').textContent = 'Der Agent sucht im Archiv und liest passende Seiten …';
+  const mode = $('chat-mode').value;
+  if (mode === 'summary' && !chatContext) { $('chat-message').textContent = 'Recherchiere zuerst, bevor Du Ergebnisse zusammenführst.'; return; }
+  chatBusy = true; updateChatControls(); $('chat-messages').setAttribute('aria-busy', 'true'); $('chat-message').textContent = mode === 'summary' ? 'Der Agent führt Deine bisherigen Ergebnisse zusammen …' : 'Der Agent sucht im Archiv und liest passende Seiten …';
   const row = appendChatMessage('user', question);
   try {
-    const messages = [...chatHistory, {role: 'user', content: question}];
-    const answer = await api('/api/chat', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({messages})});
+    const messages = [{role: 'user', content: question}];
+    const answer = await api('/api/chat', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({messages, mode, context: chatContext})});
     appendChatMessage('assistant', answer.text, answer.sources || []);
-    chatHistory = [...messages, {role: 'assistant', content: answer.text}];
-    $('chat-question').value = ''; $('chat-message').textContent = 'Antwort erhalten. Du kannst eine weitere Frage stellen.';
+    chatContext = answer.context;
+    $('chat-question').value = ''; $('chat-message').textContent = answer.compacted ? 'Antwort erhalten. Frühere Ergebnisse wurden für die Fortsetzung verdichtet; der sichtbare Verlauf bleibt erhalten.' : 'Antwort erhalten. Du kannst eine weitere Teilfrage stellen oder Ergebnisse zusammenführen.';
   } catch (error) { row.remove(); $('chat-message').textContent = `Frage konnte nicht beantwortet werden: ${error.message}`; }
   finally { chatBusy = false; updateChatControls(); $('chat-messages').setAttribute('aria-busy', 'false'); if (!$('chat-view').hidden && chatConfigured) $('chat-question').focus(); }
 });
@@ -85,4 +87,4 @@ $('agent-token-form').addEventListener('submit', async event => {
   } catch (error) { $('agent-tokens-message').textContent = `Token konnte nicht erstellt werden: ${error.message}`; }
   finally { $('agent-token-create').disabled = false; }
 });
-window.addEventListener('pagehide', () => { hideAgentToken(); chatHistory = []; $('chat-messages').replaceChildren(); });
+window.addEventListener('pagehide', () => { hideAgentToken(); chatContext = ''; $('chat-messages').replaceChildren(); });

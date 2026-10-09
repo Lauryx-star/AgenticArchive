@@ -42,11 +42,12 @@
       <p id="chat-state" class="hint" role="status" aria-live="polite">Agent-Verbindung wird geprüft …</p>
       <div id="chat-messages" role="log" aria-label="Chatverlauf" aria-live="polite" aria-busy="false"></div>
       <form id="chat-form">
+        <label for="chat-mode">Arbeitsweise</label><select id="chat-mode" disabled><option value="research">Im Archiv recherchieren</option><option value="summary">Bisherige Ergebnisse zusammenführen</option></select>
         <label for="chat-question">Deine Frage</label><textarea id="chat-question" rows="3" maxlength="4000" placeholder="Was möchtest Du über Deine Dokumente wissen?" required disabled></textarea>
         <div class="chat-actions"><button id="chat-send" type="submit" disabled>Frage senden</button><button id="chat-new" type="button" class="secondary">Neuer Chat</button></div>
       </form>
       <p id="chat-message" role="status" aria-live="polite"></p>
-      <p class="hint">Der Chat sendet Deine Frage, den Verlauf und abgerufene Textstellen an OpenAI. Prüfe Beträge und Zeiträume anhand der Quellen. Der Verlauf bleibt in diesem Tab und wird beim Neuladen gelöscht.</p>
+      <p class="hint">Der Chat sendet Deine Frage, den Recherchekontext und abgerufene Textstellen an das konfigurierte Sprachmodell. Große Fragen kannst Du in Teilrecherchen aufteilen und danach die Ergebnisse zusammenführen. Lange Verläufe werden verdichtet; dabei können Details verloren gehen. Prüfe Beträge und Zeiträume anhand der Quellen. Der Verlauf bleibt in diesem Tab und wird beim Neuladen gelöscht.</p>
     </section>
     <section id="documents-view" aria-labelledby="documents-title" hidden>
       <p class="eyebrow">DEIN ARCHIV IM ÜBERBLICK</p><h1 id="documents-title" tabindex="-1">Alle Dokumente.</h1>

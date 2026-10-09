@@ -63,3 +63,26 @@ func TestRepeatedReadsStopAndPreserveEvidence(t *testing.T) {
 		t.Fatalf("repeat loop failed: %+v %v", answer, err)
 	}
 }
+
+func TestPartialFinalizationKeepsPreviousResearchContext(t *testing.T) {
+	modelCalls, readCalls := 0, 0
+	client := researchClient(t, func(body string) string {
+		modelCalls++
+		if modelCalls == 4 {
+			if !strings.Contains(body, "2025: 100 EUR") || !strings.Contains(body, "EON Rechnungsdatum") {
+				t.Fatal("prior answer or current read evidence lost at limit")
+			}
+			return modelText("2025: 100 EUR [Dokument 1, Seite 1]; neuer Beleg [Dokument 7, Seite 1].")
+		}
+		return modelTool("read_page", `{"document_id":7,"page":1,"offset":0}`)
+	}, &readCalls)
+	runner := Runner{Client: client, Provider: "ollama", APIURL: "http://model.invalid/responses", MCPURL: "http://archive.invalid/mcp"}
+	answer, err := runner.Run(context.Background(), "archive-token", Request{Messages: []Message{
+		{Role: "user", Content: "Recherchiere 2025"},
+		{Role: "assistant", Content: "2025: 100 EUR [Dokument 1, Seite 1]", Sources: []Source{{DocumentID: 1, Page: 1}}},
+		{Role: "user", Content: "Und jetzt 2026"},
+	}})
+	if err != nil || !strings.Contains(answer.Text, "Teilergebnis") || len(answer.Sources) != 2 {
+		t.Fatalf("previous research disappeared: %+v %v", answer, err)
+	}
+}

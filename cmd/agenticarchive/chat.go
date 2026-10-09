@@ -35,11 +35,39 @@ func chatRoutes(mux *http.ServeMux, auth *authService, store *archive.Store) {
 			return
 		}
 		var input agent.Request
-		decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10))
+		decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 512<<10))
 		decoder.DisallowUnknownFields()
 		if decoder.Decode(&input) != nil || decoder.Decode(new(any)) != io.EOF {
 			apiError(w, 400, fmt.Errorf("Ungültige Chat-Anfrage."))
 			return
+		}
+		user := r.Context().Value(sessionContextKey{}).(access.Session).User
+		// The browser cannot inject source receipts or replace the signed past.
+		for _, message := range input.Messages {
+			if len(message.Sources) != 0 {
+				apiError(w, 400, fmt.Errorf("Quellen müssen aus dem Recherchekontext stammen."))
+				return
+			}
+		}
+		if input.Context != "" {
+			if len(input.Messages) != 1 || input.Messages[0].Role != "user" {
+				apiError(w, 400, fmt.Errorf("Ungültige Fortsetzung."))
+				return
+			}
+			past, err := readChatMemory(key, input.Context, user.ID, time.Now())
+			if err != nil {
+				apiError(w, 400, err)
+				return
+			}
+			input.Messages = append(past, input.Messages...)
+			input.Context = ""
+		}
+		for _, source := range chatHistorySources(input.Messages) {
+			doc, err := store.Document(r.Context(), source.DocumentID)
+			if err != nil || source.Page < 1 || source.Page > doc.Pages {
+				apiError(w, 400, fmt.Errorf("Eine bisherige Quelle ist nicht mehr verfügbar. Bitte beginne einen neuen Chat."))
+				return
+			}
 		}
 		if err := agent.ValidateRequest(input); err != nil {
 			apiError(w, 400, err)
@@ -52,7 +80,6 @@ func chatRoutes(mux *http.ServeMux, auth *authService, store *archive.Store) {
 			apiError(w, 429, fmt.Errorf("Agent beschäftigt. Bitte kurz warten."))
 			return
 		}
-		user := r.Context().Value(sessionContextKey{}).(access.Session).User
 		token, raw, err := auth.store.CreateAgentToken(r.Context(), user, "Webchat", 5*time.Minute, true, time.Now())
 		if err != nil {
 			accountError(w, err)
@@ -78,8 +105,8 @@ func chatRoutes(mux *http.ServeMux, auth *authService, store *archive.Store) {
 			return
 		}
 		defer response.Body.Close()
-		data, err := io.ReadAll(io.LimitReader(response.Body, 256<<10+1))
-		if err != nil || len(data) > 256<<10 {
+		data, err := io.ReadAll(io.LimitReader(response.Body, 512<<10+1))
+		if err != nil || len(data) > 512<<10 {
 			apiError(w, 502, fmt.Errorf("Agent-Antwort ungültig."))
 			return
 		}
@@ -105,7 +132,7 @@ func chatRoutes(mux *http.ServeMux, auth *authService, store *archive.Store) {
 			return
 		}
 		var answer agent.Answer
-		if json.Unmarshal(data, &answer) != nil || strings.TrimSpace(answer.Text) == "" || len(answer.Text) > 32000 || len(answer.Sources) > agent.MaxToolCalls {
+		if json.Unmarshal(data, &answer) != nil || strings.TrimSpace(answer.Text) == "" || len(answer.Text) > 32000 || len(answer.Sources) > 512 {
 			apiError(w, 502, fmt.Errorf("Agent-Antwort ungültig."))
 			return
 		}
@@ -117,6 +144,31 @@ func chatRoutes(mux *http.ServeMux, auth *authService, store *archive.Store) {
 			}
 			answer.Sources[i].Path = doc.Path
 		}
-		writeJSON(w, answer)
+		// Rebuild the last answer with server-resolved paths before sealing context.
+		history := answer.History
+		if len(history) == 0 {
+			history = append(input.Messages, agent.Message{Role: "assistant", Content: answer.Text})
+		}
+		history[len(history)-1] = agent.Message{Role: "assistant", Content: answer.Text, Sources: answer.Sources}
+		if err := agent.ValidateRequest(agent.Request{Messages: append(append([]agent.Message{}, history...), agent.Message{Role: "user", Content: "Fortsetzung"})}); err != nil {
+			apiError(w, 502, fmt.Errorf("Recherchekontext zu groß. Bitte beginne einen neuen Chat."))
+			return
+		}
+		writeJSON(w, map[string]any{"text": answer.Text, "sources": answer.Sources, "model": answer.Model, "context": signChatMemory(key, user.ID, history, time.Now()), "compacted": answer.Compacted})
 	})
+}
+
+func chatHistorySources(messages []agent.Message) []agent.Source {
+	sources := []agent.Source{}
+	seen := map[[2]int64]bool{}
+	for _, message := range messages {
+		for _, source := range message.Sources {
+			key := [2]int64{source.DocumentID, int64(source.Page)}
+			if !seen[key] {
+				sources = append(sources, source)
+				seen[key] = true
+			}
+		}
+	}
+	return sources
 }
