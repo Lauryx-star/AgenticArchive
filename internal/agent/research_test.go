@@ -59,6 +59,54 @@ func TestResearchCorrectionsAreBounded(t *testing.T) {
 	}
 }
 
+func TestToolFailuresAndUnreadCandidatesCannotFinishResearch(t *testing.T) {
+	for _, failure := range []bool{true, false} {
+		modelCalls, readCalls := 0, 0
+		client := researchClient(t, func(body string) string {
+			modelCalls++
+			switch modelCalls {
+			case 1:
+				if failure {
+					return modelTool("list_documents", `{"path":"EON"}`)
+				}
+				return modelTool("search_archive", `{"query":"EON","page":1}`)
+			case 2:
+				return modelText("Die Anfrage lieferte noch kein belastbares Ergebnis.")
+			case 3:
+				if !strings.Contains(body, "noch kein Rechercheergebnis") {
+					t.Fatal("failed tool or unread candidate accepted as final answer")
+				}
+				if failure {
+					return modelTool("search_archive", `{"query":"EON","page":1}`)
+				}
+				return modelTool("read_page", `{"document_id":7,"page":1,"offset":0}`)
+			case 4:
+				if failure {
+					return modelTool("read_page", `{"document_id":7,"page":1,"offset":0}`)
+				}
+				return modelText("Rechnungsdatum 12.09.2026 [Dokument 7, Seite 1]")
+			case 5:
+				return modelText("Rechnungsdatum 12.09.2026 [Dokument 7, Seite 1]")
+			default:
+				t.Fatal("unbounded recovery")
+				return ""
+			}
+		}, &readCalls)
+		runner := Runner{Client: client, Provider: "ollama", APIURL: "http://model.invalid/responses", MCPURL: "http://archive.invalid/mcp"}
+		answer, err := runner.Run(context.Background(), "archive-token", Request{Messages: []Message{{Role: "user", Content: "Wann kam meine Rechnung?"}}})
+		if err != nil || readCalls != 1 || len(answer.Sources) != 1 {
+			t.Fatalf("recovery failed: %+v %v", answer, err)
+		}
+	}
+}
+
+func TestReportedContinuationIsNotAFinalAnswer(t *testing.T) {
+	text := `Die Suche nach Dokumenten mit dem Pfadfilter "EON" hat leider zu einem Fehler geführt. Probieren wir stattdessen, nach Dokumenten mit dem Begriff "Stromrechnung" im Dateinamen zu suchen, um mögliche Rechnungen von EON zu finden.`
+	if !announcesResearch(text) {
+		t.Fatal("reported unfinished response accepted")
+	}
+}
+
 func modelTool(name, arguments string) string {
 	data, _ := json.Marshal(map[string]any{"status": "completed", "output": []any{map[string]any{"type": "function_call", "name": name, "call_id": "call-" + name, "arguments": arguments}}})
 	return string(data)
@@ -102,7 +150,11 @@ func researchClient(t *testing.T, model func(string) string, readCalls *int) *ht
 				} else if request.Params.Arguments.Query == "EON" {
 					text = `{"total":1,"hits":[{"document_id":7,"page":1,"path":"Stromrechnung.pdf"}]}`
 				}
-				data, _ := json.Marshal(map[string]any{"result": map[string]any{"isError": false, "content": []any{map[string]any{"type": "text", "text": text}}}})
+				isError := request.Params.Name == "list_documents"
+				if isError {
+					text = "Ungültige Dokumentparameter."
+				}
+				data, _ := json.Marshal(map[string]any{"result": map[string]any{"isError": isError, "content": []any{map[string]any{"type": "text", "text": text}}}})
 				result = string(data)
 			default:
 				t.Fatal("unexpected method", request.Method)

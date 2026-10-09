@@ -2,13 +2,69 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/Lauryx-star/AgenticArchive/internal/archive"
 )
+
+func TestArchiveToolsSearchContentAndFilenamesWithSafeDefaults(t *testing.T) {
+	f := newAuthFixture(t)
+	ctx := context.Background()
+	path := filepath.Join(f.dir, "archive.db")
+	db, err := sql.Open("sqlite3", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.Exec(`UPDATE documents SET path='Stromrechnung.pdf' WHERE id=1; UPDATE pages SET text='EON Rechnung. Rechnungsdatum 12.09.2026.' WHERE document_id=1;
+INSERT INTO page_search(rowid,text,path) SELECT p.id,p.text,d.path FROM pages p JOIN documents d ON d.id=p.document_id;`)
+	db.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := archive.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	for _, tc := range []struct {
+		query              string
+		content, filenames int
+	}{{"EON", 1, 0}, {"Stromrechnung", 1, 1}} {
+		params, _ := json.Marshal(map[string]any{"query": tc.query}) // no page: first page
+		result, err := callArchiveTool(ctx, store, "search_archive", params)
+		if err != nil {
+			t.Fatal(err)
+		}
+		data, _ := json.Marshal(result)
+		var got struct {
+			Total         int                       `json:"total"`
+			FilenameTotal int                       `json:"filename_total"`
+			Hits          []archive.Hit             `json:"hits"`
+			Filenames     []archive.DocumentSummary `json:"filename_matches"`
+		}
+		if json.Unmarshal(data, &got) != nil || got.Total != tc.content || got.FilenameTotal != tc.filenames || len(got.Hits) != tc.content || len(got.Filenames) != tc.filenames {
+			t.Fatalf("search %s: %s", tc.query, data)
+		}
+	}
+	if _, err := callArchiveTool(ctx, store, "list_documents", json.RawMessage(`{"path":"EON"}`)); err != nil {
+		t.Fatalf("missing page should use 1: %v", err)
+	}
+	if _, err := callArchiveTool(ctx, store, "read_page", json.RawMessage(`{"document_id":1,"page":1}`)); err != nil {
+		t.Fatalf("missing offset should use 0: %v", err)
+	}
+	for _, tc := range []struct{ name, args string }{{"search_archive", `{"query":"EON","page":0}`}, {"list_documents", `{"path":"EON","page":0}`}, {"read_page", `{"document_id":1,"page":1,"offset":-1}`}, {"search_archive", `{"query":"EON","admin":true}`}} {
+		if _, err := callArchiveTool(ctx, store, tc.name, json.RawMessage(tc.args)); err == nil {
+			t.Fatal("invalid explicit parameters accepted", tc.args)
+		}
+	}
+}
 
 func TestMCPIsBearerOnlyReadOnlyAndRevocable(t *testing.T) {
 	f := newAuthFixture(t)

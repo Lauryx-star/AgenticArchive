@@ -137,11 +137,17 @@ This version uses manually supplied bearer tokens, without OAuth discovery.
 
 Available tools:
 
-- `search_archive(query, page)`: 20 grouped document matches per page. A match
-  represents one page of a document; it is not an exhaustive matching-page list.
+- `search_archive(query, page)`: 20 grouped full-text index matches in `hits`,
+  with count `total`, plus up to 20 filename substring matches in
+  `filename_matches` with count `filename_total`. Both lists use the same page
+  number and can overlap. Indexed text and indexed paths are searched together;
+  substring filename matches also include documents not yet indexed. A hit
+  represents one page of a document, not every matching page. Missing page
+  defaults to 1; explicit invalid page values remain errors.
 - `list_documents(path, page)`: 20 document records with page counts and status.
 - `read_page(document_id, page, offset)`: up to 12,000 Unicode characters,
-  `next_offset` for remaining text, OCR flag and a citation marker.
+  `next_offset` for remaining text, OCR flag and a citation marker. Missing
+  offset defaults to 0. Missing `list_documents` page also defaults to 1.
 
 Indexed text remains available even if the original archive mount is missing;
 PDF source links still enforce the existing source identity check.
@@ -165,8 +171,12 @@ The agent allows up to two research corrections within the same budget. After
 one empty full-text query, it requires another distinct query or a filename
 lookup before accepting an answer with no read sources. This is a recovery
 guard, not a guarantee of exhaustive discovery or factual answer accuracy.
-Full-text terms are combined with AND on the same page; filenames use the
-separate `list_documents` path filter. OR and wildcards are unsupported.
+Full-text terms are combined with AND within an indexed page/path entry.
+The additional filename lookup matches the query as a path substring.
+OR and wildcards are unsupported. A failed tool or discovered candidates with
+no read source pages also trigger recovery. For candidates, the agent supplies
+explicit document/page arguments for up to three next read calls, rather than
+only asking the model generally to continue.
 
 The first model response must call a read tool. The agent only exposes the three
 allowlisted archive tools, treats document text as untrusted evidence and receives
@@ -190,3 +200,15 @@ temporary-token cleanup, the MCP read-only boundary, Origin checks, explicit set
 state and a mocked OpenAI search/read/answer loop with reasoning replay. These
 tests do not make OpenAI calls or use a real API key. A live provider test remains
 necessary once a key is configured.
+
+The opt-in local Ollama integration uses the real runner and authenticated MCP
+endpoint with an isolated, indexed archive containing two synthetic invoices:
+
+```sh
+OLLAMA_TEST_URL=http://127.0.0.1:11434/v1/responses go test -tags sqlite_fts5 ./cmd/agenticarchive -run TestLiveOllamaResearch -v
+```
+
+It verifies that both pages are actually read and that the newer invoice date
+appears in the answer. It is skipped by default and never accesses the deployed
+archive or real user credentials. Real archive discovery and answer accuracy
+still depend on model behavior and the research limits.
