@@ -1,11 +1,40 @@
+x-archive-agent: &archive-agent
+  build:
+    context: .
+    dockerfile: Dockerfile.agent
+  image: agenticarchive-agent:local
+  environment: &agent-environment
+    OPENAI_MODEL: ${OPENAI_MODEL:-}
+    OPENAI_API_URL: ${OPENAI_API_URL:-}
+    AGENT_SERVICE_KEY_FILE: /run/secrets/agent_service_key
+    ARCHIVE_MCP_URL: ${ARCHIVE_MCP_URL:-http://agenticarchive:8080/mcp}
+  networks:
+    default:
+      aliases: [archive-agent]
+  mem_limit: 256m
+  memswap_limit: 256m
+  cpus: 0.5
+  init: true
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  restart: unless-stopped
+  stop_grace_period: 15s
+
+# All deployment settings live in .env; see .env.example.
+# Start: docker compose up -d --build
 services:
   agenticarchive:
     build: .
     image: agenticarchive:local
     environment:
       AUTH_SECURE_COOKIE: ${AUTH_SECURE_COOKIE:-false}
+      AGENT_URL: ${AGENT_URL:-}
+      AGENT_SERVICE_KEY_FILE: /run/secrets/agent_service_key
+    secrets:
+      - agent_service_key
     ports:
-      - "127.0.0.1:8080:8080"
+      - "${ARCHIVE_HOST_BIND:-127.0.0.1}:${ARCHIVE_PORT:-8080}:8080"
     volumes:
       - type: bind
         source: ${ARCHIVE_PATH:-./archive}
@@ -20,5 +49,34 @@ services:
     init: true
     restart: unless-stopped
     stop_grace_period: 15s
+
+  archive-agent-openai:
+    <<: *archive-agent
+    profiles: [openai]
+    environment:
+      <<: *agent-environment
+      LLM_PROVIDER: openai
+      OPENAI_API_KEY_FILE: /run/secrets/openai_api_key
+    secrets:
+      - agent_service_key
+      - openai_api_key
+
+  archive-agent-ollama:
+    <<: *archive-agent
+    profiles: [ollama]
+    environment:
+      <<: *agent-environment
+      LLM_PROVIDER: ollama
+    secrets:
+      - agent_service_key
+
 volumes:
   archive-data:
+    name: ${ARCHIVE_DATA_VOLUME:-agenticarchive-data}
+    external: ${ARCHIVE_DATA_EXTERNAL:-false}
+
+secrets:
+  agent_service_key:
+    file: ${SECRETS_PATH:-./secrets}/agent-service-key.txt
+  openai_api_key:
+    file: ${SECRETS_PATH:-./secrets}/openai-api-key.txt

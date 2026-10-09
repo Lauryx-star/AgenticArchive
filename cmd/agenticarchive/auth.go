@@ -72,6 +72,7 @@ func newAuth(store *access.Store, data string, secure bool) (*authService, error
 
 func (a *authService) routes(mux *http.ServeMux) {
 	a.userRoutes(mux)
+	a.tokenRoutes(mux)
 	mux.HandleFunc("GET /login", func(w http.ResponseWriter, r *http.Request) {
 		b, _ := assets.ReadFile("ui/login.html")
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -130,6 +131,26 @@ func (a *authService) protect(next http.Handler) http.Handler {
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "same-origin")
 		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
+		if r.URL.Path == "/mcp" {
+			if !a.sameOrigin(r) {
+				apiError(w, 403, fmt.Errorf("Anfrage von fremder Herkunft abgelehnt."))
+				return
+			}
+			raw, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+			if !ok {
+				w.Header().Set("WWW-Authenticate", `Bearer realm="archive-mcp"`)
+				apiError(w, 401, fmt.Errorf("Agent-Token erforderlich."))
+				return
+			}
+			principal, err := a.store.AgentToken(r.Context(), raw, time.Now())
+			if err != nil {
+				w.Header().Set("WWW-Authenticate", `Bearer realm="archive-mcp"`)
+				apiError(w, 401, fmt.Errorf("Agent-Token ungültig oder abgelaufen."))
+				return
+			}
+			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), tokenContextKey{}, principal)))
+			return
+		}
 		if r.Method != "GET" && r.Method != "HEAD" && !a.sameOrigin(r) {
 			apiError(w, 403, fmt.Errorf("Anfrage von fremder Herkunft abgelehnt."))
 			return

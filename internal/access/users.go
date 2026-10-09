@@ -158,7 +158,10 @@ func replacePassword(ctx context.Context, tx *sql.Tx, id int64, salt, hash []byt
 	if _, err := tx.ExecContext(ctx, "UPDATE users SET salt=?,password_hash=?,iterations=? WHERE id=?", salt, hash, passwordIterations, id); err != nil {
 		return err
 	}
-	_, err := tx.ExecContext(ctx, "DELETE FROM sessions WHERE user_id=?", id)
+	if _, err := tx.ExecContext(ctx, "DELETE FROM sessions WHERE user_id=?", id); err != nil {
+		return err
+	}
+	_, err := tx.ExecContext(ctx, "DELETE FROM agent_tokens WHERE user_id=?", id)
 	return err
 }
 

@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="/style.css">
   <script src="/app.js" defer></script>
   <script src="/users.js" defer></script>
+  <script src="/chat.js" defer></script>
 </head>
 <body>
   <header><a class="brand" href="/">AgenticArchive<span>Dein lokales PDF-Archiv</span></a>
@@ -15,7 +16,7 @@
   </header>
   <main>
     <div class="workspace">
-      <nav class="view-switch" aria-label="Archivansicht"><button id="show-search" type="button" aria-pressed="true">Suche</button><button id="show-documents" type="button" aria-pressed="false">Dokumente</button><button id="show-settings" type="button" aria-pressed="false">Einstellungen</button></nav>
+      <nav class="view-switch" aria-label="Archivansicht"><button id="show-search" type="button" aria-pressed="true">Suche</button><button id="show-chat" type="button" aria-pressed="false">Chat</button><button id="show-documents" type="button" aria-pressed="false">Dokumente</button><button id="show-settings" type="button" aria-pressed="false">Einstellungen</button></nav>
     <section id="search-view" aria-labelledby="search-title">
       <p class="eyebrow">FINDEN STATT DURCHSUCHEN</p><h1 id="search-title">Deine Dokumente.<br>Eine Suche.</h1>
       <p class="intro">Suche nach Wörtern oder setze eine Wortgruppe in Anführungszeichen.</p>
@@ -30,6 +31,22 @@
       <p id="message" role="status" aria-live="polite">Dein Suchindex wird beim Start automatisch abgeglichen.</p>
       <div id="results" aria-busy="false"></div>
       <nav id="pagination" aria-label="Ergebnisseiten" hidden><button id="previous" type="button">Zurück</button><span id="page-label"></span><button id="next" type="button">Weiter</button></nav>
+    </section>
+    <section id="chat-view" aria-labelledby="chat-title" hidden>
+      <p class="eyebrow">FRAGEN AN DEIN ARCHIV</p><h1 id="chat-title">Deine Unterlagen.<br>Im Gespräch.</h1>
+      <p class="intro">Stelle Fragen zu Deinen Dokumenten. Der Agent sucht im Archiv und kann seine Antworten mit Seitenverweisen belegen.</p>
+      <div class="chat-examples" aria-label="Beispielfragen">
+        <button type="button" class="secondary" data-question="Welche Stromrechnungen findest Du in meinem Archiv?">Stromrechnungen finden</button>
+        <button type="button" class="secondary" data-question="Erstelle eine Energiekostenübersicht der letzten 10 Jahre anhand meiner Rechnungen. Nenne Abrechnungszeiträume, Beträge, Quellen und fehlende Jahre.">Energiekosten vergleichen</button>
+      </div>
+      <p id="chat-state" class="hint" role="status" aria-live="polite">Agent-Verbindung wird geprüft …</p>
+      <div id="chat-messages" role="log" aria-label="Chatverlauf" aria-live="polite" aria-busy="false"></div>
+      <form id="chat-form">
+        <label for="chat-question">Deine Frage</label><textarea id="chat-question" rows="3" maxlength="4000" placeholder="Was möchtest Du über Deine Dokumente wissen?" required disabled></textarea>
+        <div class="chat-actions"><button id="chat-send" type="submit" disabled>Frage senden</button><button id="chat-new" type="button" class="secondary">Neuer Chat</button></div>
+      </form>
+      <p id="chat-message" role="status" aria-live="polite"></p>
+      <p class="hint">Der Chat sendet Deine Frage, den Verlauf und abgerufene Textstellen an OpenAI. Prüfe Beträge und Zeiträume anhand der Quellen. Der Verlauf bleibt in diesem Tab und wird beim Neuladen gelöscht.</p>
     </section>
     <section id="documents-view" aria-labelledby="documents-title" hidden>
       <p class="eyebrow">DEIN ARCHIV IM ÜBERBLICK</p><h1 id="documents-title" tabindex="-1">Alle Dokumente.</h1>
@@ -55,10 +72,20 @@
             <label for="current-password">Bisheriges Passwort</label><input id="current-password" type="password" autocomplete="current-password" maxlength="1024" required>
             <label for="new-password">Neues Passwort</label><input id="new-password" type="password" autocomplete="new-password" minlength="15" maxlength="1024" required aria-describedby="my-password-hint">
             <label for="new-password-confirm">Neues Passwort wiederholen</label><input id="new-password-confirm" type="password" autocomplete="new-password" minlength="15" maxlength="1024" required>
-            <p id="my-password-hint" class="hint">Mindestens 15 Zeichen. Danach wirst Du auf allen Geräten abgemeldet und meldest Dich mit dem neuen Passwort an.</p>
+            <p id="my-password-hint" class="hint">Mindestens 15 Zeichen. Danach wirst Du auf allen Geräten abgemeldet; Deine Agent-Tokens werden widerrufen.</p>
             <button id="my-password-save" type="submit">Mein Passwort ändern</button>
           </form>
           <p id="my-password-message" role="status" aria-live="polite"></p>
+        </details>
+        <details id="agent-token-details"><summary>Meine Agent-Tokens</summary>
+          <p class="hint">Erlaube einem eigenen Agenten, das Archiv in Deinem Namen zu lesen. Tokens können keine Einstellungen ändern oder Verarbeitung starten. Du kannst sie jederzeit widerrufen.</p>
+          <div id="agent-tokens-list"></div><p id="agent-tokens-message" role="status" aria-live="polite"></p>
+          <form id="agent-token-form" class="account-form">
+            <label for="agent-token-name">Name</label><input id="agent-token-name" maxlength="80" placeholder="z. B. Mein Archiv-Agent" required>
+            <label for="agent-token-days">Gültig für</label><select id="agent-token-days"><option value="30">30 Tage</option><option value="90" selected>90 Tage</option><option value="365">1 Jahr</option></select>
+            <button id="agent-token-create" type="submit">Lese-Token erstellen</button>
+          </form>
+          <div id="agent-token-secret-panel" hidden><p class="hint">Dieses Token wird nur jetzt angezeigt. Speichere es an einem sicheren Ort und gib es nur Deinem Agenten.</p><label for="agent-token-secret">Neues Token</label><input id="agent-token-secret" readonly autocomplete="off" spellcheck="false"><button id="agent-token-hide" type="button" class="secondary">Token ausblenden</button></div>
         </details>
       </section>
       <div id="archive-settings" class="settings-section" hidden>
@@ -108,7 +135,7 @@
     <form id="reset-password-form" class="account-form">
       <label for="reset-password">Neues Passwort</label><input id="reset-password" type="password" autocomplete="new-password" minlength="15" maxlength="1024" required aria-describedby="reset-password-hint">
       <label for="reset-password-confirm">Neues Passwort wiederholen</label><input id="reset-password-confirm" type="password" autocomplete="new-password" minlength="15" maxlength="1024" required>
-      <p id="reset-password-hint" class="hint">Mindestens 15 Zeichen. Alle Sitzungen dieses Benutzers werden abgemeldet. Gib das neue Passwort direkt an die Person weiter.</p>
+      <p id="reset-password-hint" class="hint">Mindestens 15 Zeichen. Alle Sitzungen und Agent-Tokens dieses Benutzers werden widerrufen. Gib das neue Passwort direkt an die Person weiter.</p>
       <button id="reset-password-save" type="submit">Neues Passwort vergeben</button>
     </form>
     <p id="reset-password-message" role="status" aria-live="polite"></p>

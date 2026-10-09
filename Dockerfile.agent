@@ -1,0 +1,17 @@
+FROM golang:1.26-bookworm AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+COPY internal/agent ./internal/agent
+COPY cmd/archive-agent ./cmd/archive-agent
+RUN CGO_ENABLED=0 go test ./internal/agent ./cmd/archive-agent
+RUN CGO_ENABLED=0 go build -trimpath -o /archive-agent ./cmd/archive-agent
+
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --gid 10001 agent && useradd --uid 10001 --gid agent --no-create-home agent
+COPY --from=build /archive-agent /usr/local/bin/archive-agent
+ENV AGENT_LISTEN_ADDR=0.0.0.0:8081 GOMEMLIMIT=96MiB
+USER agent
+EXPOSE 8081
+ENTRYPOINT ["archive-agent"]

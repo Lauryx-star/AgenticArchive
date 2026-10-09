@@ -4,21 +4,30 @@ Local PDF search with OCR, designed for personal archives and small businesses.
 
 This is an early prototype, not a finished release. It recursively indexes PDFs,
 extracts page text, runs German/English OCR on pages with fewer than 20 letters,
-and provides word/phrase search with page references. Everything runs locally.
+and provides word/phrase search with page references. Indexing and OCR run locally.
+An optional second container adds a research chat with PDF sources using OpenAI or local Ollama.
 
 PR security scanning and manual merge protection setup:
 [Security checks and intentional admin bypass](docs/security-checks.md).
 
 ## Run with Docker
 
-Create an archive directory or point `ARCHIVE_PATH` at an existing directory:
+Copy `.env.example` to `.env`, configure the archive directory and model, and
+create the shared service secret (only on first setup):
 
 ```sh
+cp .env.example .env
 mkdir -p archive
-ARCHIVE_PATH=/absolute/path/to/pdfs docker compose up --build -d
+mkdir -m 700 secrets
+openssl rand -hex 32 > secrets/agent-service-key.txt
+docker compose up --build -d
 ```
 
-Open <http://localhost:8080>. The default Compose configuration exposes the UI on
+The template selects local Ollama; install/run it and download `qwen3:8b` first,
+or select OpenAI and save its key in `secrets/openai-api-key.txt`. For archive-only
+operation, leave `COMPOSE_PROFILES` and `AGENT_URL` empty. See [agent setup](docs/agent.md).
+
+Open <http://localhost:8080> (or your `ARCHIVE_PORT`). The default Compose configuration exposes the UI on
 the local machine only. For NAS access, explicitly configure a LAN-accessible
 port binding or a reverse proxy with HTTPS. Web UI, search, stored text, PDFs and
 administrative API operations require authentication. Before the first account
@@ -43,6 +52,20 @@ serial and limited to a 2400-pixel longest image dimension. This is a test targe
 not a guarantee for arbitrary PDFs. Scaling down may reduce OCR accuracy.
 Limits also apply to extracted text (4 MiB/page, 16 MiB/document) and page count
 (2000/document). Tool operations time out after two minutes each.
+
+## Optional chat and agent access
+
+The Chat tab sits between Search and Documents. All services use one `compose.yaml`.
+Enable the optional agent with `COMPOSE_PROFILES=${LLM_PROVIDER}` and set `AGENT_URL` in `.env`;
+select OpenAI or local Ollama with `LLM_PROVIDER`.
+Copy [`.env.example`](.env.example) to `.env` for documented model and archive settings.
+Each signed-in user chats with their own temporary read identity. Users may
+also create named, revocable read tokens for independent MCP agents in their
+account settings. The archive works without an agent container.
+
+See [agent setup, MCP tools, data flow and current reporting limits](docs/agent.md).
+Ten-year invoice summaries still require a dedicated, validated reporting workflow
+before they can be treated as complete financial reports.
 
 ## Local development
 
@@ -98,7 +121,7 @@ At least one administrator must remain, even during concurrent role changes.
 Usernames are immutable and case-sensitive. Directory-specific permissions and
 account deletion are not implemented yet.
 
-After a password change or administrative reset, all sessions for the affected
+After a password change or administrative reset, all sessions and agent tokens for the affected
 user are revoked. A self-service change returns the user to login with a success
 message. Administrative resets leave the administrator's session intact and need
 no email delivery: share the assigned password directly with the intended user.
@@ -136,7 +159,7 @@ docker compose exec -T agenticarchive reset-admin -username admin < /path/to/pri
 ```
 
 Use the username chosen during setup. This local operation requires access to
-the server/data directory, replaces the password and revokes all sessions for
+the server/data directory, replaces the password and revokes all sessions and agent tokens for
 that administrator. It leaves documents and scan settings intact. Passwords are
 not accepted as command-line arguments or printed. Store the input file privately
 and remove it after use. CLI scan/search/source acceptance remain local operations
@@ -228,14 +251,22 @@ permission. Authentication endpoints are:
 - `GET /api/auth/me` — current user, permissions and CSRF token.
 - `POST /api/auth/logout` — revokes the current session; requires CSRF token.
 - `PUT /api/auth/password` — JSON `current_password`, `new_password`; changes the
-  caller's own password and revokes their sessions.
+  caller's own password and revokes their sessions and agent tokens.
 - `GET /api/users` — administrators only; returns account IDs, usernames and roles.
 - `POST /api/users` — administrators only; JSON `username`, `password`, `role`
   (`reader` or `admin`); creates an account, returning HTTP 201.
 - `PUT /api/users/{id}/role` — administrators only; JSON `role`; preserves the last
   administrator and enforces the actor's current role inside the transaction.
 - `PUT /api/users/{id}/password` — administrators only; JSON `password`; assigns a
-  new password to another account and revokes that account's sessions.
+  new password to another account and revokes that account's sessions and agent tokens.
+- `GET /api/auth/tokens` — own active personal read-token metadata.
+- `POST /api/auth/tokens` — JSON `name`, `days` (1–365); returns a secret once.
+- `DELETE /api/auth/tokens/{id}` — revokes an owned token.
+- `GET /api/chat/state` — reports whether an agent is configured.
+- `POST /api/chat` — bounded alternating `messages` (`role`, `content`); returns
+  answer text and read source pages. Requires the optional agent service.
+
+`/mcp` uses personal bearer tokens instead of cookies; see [MCP details](docs/agent.md).
 
 Every mutating authenticated endpoint requires the session's CSRF header.
 User-management/password JSON rejects unknown fields; usernames are limited to
@@ -293,4 +324,4 @@ requirements and is not a custom mandatory attribution clause.
 - Test `linux/amd64` on a Synology DS218+ (the development Mac uses ARM64).
 - Expand document management and OCR quality controls beyond forced OCR/retry.
 - Consider directory-level permissions and further account management controls.
-- Add optional agent access and provider-independent LLM integration later.
+- Extend the optional research chat with validated reporting and additional LLM providers.

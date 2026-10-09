@@ -93,16 +93,20 @@ $('scan').addEventListener('click', () => triggerScan(false)); $('verify').addEv
 let documentPage = 1, documentRequest = 0, documentFilters = {path: '', status: '', sort: 'path'}, documentView = false, archiveSignature = '';
 const documentStatuses = {ready: 'Verarbeitet', queued: 'Wartet', processing: 'In Verarbeitung', error: 'Fehlgeschlagen'};
 function switchView(view) {
-  const documents = view === 'documents', settings = view === 'settings';
+  const documents = view === 'documents', settings = view === 'settings', chat = view === 'chat';
   documentView = documents;
-  $('search-view').hidden = documents || settings; $('documents-view').hidden = !documents; $('settings-view').hidden = !settings;
-  $('show-search').setAttribute('aria-pressed', String(!documents && !settings)); $('show-documents').setAttribute('aria-pressed', String(documents));
+  $('search-view').hidden = view !== 'search'; $('documents-view').hidden = !documents; $('settings-view').hidden = !settings; $('chat-view').hidden = !chat;
+  $('show-search').setAttribute('aria-pressed', String(view === 'search')); $('show-documents').setAttribute('aria-pressed', String(documents));
+  $('show-chat').setAttribute('aria-pressed', String(chat));
   $('show-settings').setAttribute('aria-pressed', String(settings));
   if (settings) {
+    loadAgentTokens();
     if (permissions.manage_settings) loadSettings();
     if (permissions.manage_users) loadUsers();
   }
   if (documents) loadDocuments(documentPage);
+  if (chat) loadChatState();
+  if (!settings) hideAgentToken();
 }
 $('show-search').addEventListener('click', () => switchView('search'));
 $('show-documents').addEventListener('click', () => switchView('documents'));

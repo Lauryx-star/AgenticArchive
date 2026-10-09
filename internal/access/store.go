@@ -89,7 +89,13 @@ CREATE TABLE IF NOT EXISTS sessions (
  token_hash BLOB PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
  csrf_hash BLOB NOT NULL, expires INTEGER NOT NULL
 );
-CREATE INDEX IF NOT EXISTS sessions_user ON sessions(user_id);`)
+CREATE INDEX IF NOT EXISTS sessions_user ON sessions(user_id);
+CREATE TABLE IF NOT EXISTS agent_tokens (
+ id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+ name TEXT NOT NULL, token_hash BLOB NOT NULL UNIQUE, created INTEGER NOT NULL, expires INTEGER NOT NULL,
+ temporary INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS agent_tokens_user ON agent_tokens(user_id);`)
 	if err != nil {
 		db.Close()
 		return nil, err

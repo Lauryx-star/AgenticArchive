@@ -134,7 +134,9 @@ jobs:
           echo "$RUNNER_TEMP/trivy-bin" >> "$GITHUB_PATH"
           ./trivy-bin/trivy --version
       - name: Build local image without publishing or registry credentials
-        run: docker build --pull --tag agenticarchive:security .
+        run: |
+          docker build --pull --tag agenticarchive:security .
+          docker build --pull --file Dockerfile.agent --tag agenticarchive-agent:security .
       - name: Check runtime OS and application dependencies at every supported severity
         run: |
           trivy --config /dev/null image \
@@ -143,6 +145,12 @@ jobs:
             --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL \
             --ignorefile /dev/null \
             --format table --timeout 10m agenticarchive:security
+          trivy --config /dev/null image \
+            --db-repository ghcr.io/aquasecurity/trivy-db:2 \
+            --image-src docker --scanners vuln --exit-code 1 \
+            --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL \
+            --ignorefile /dev/null \
+            --format table --timeout 10m agenticarchive-agent:security
 
   gate:
     name: Security gate
