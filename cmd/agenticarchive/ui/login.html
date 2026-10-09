@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>AgenticArchive · Anmelden</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/login.js" defer></script>
+</head>
+<body>
+  <header><a class="brand" href="/">AgenticArchive<span>Dein lokales PDF-Archiv</span></a>
+    <label class="theme">Darstellung<select id="theme"><option value="auto">Automatisch</option><option value="light">Hell</option><option value="dark">Dunkel</option></select></label>
+  </header>
+  <main class="login-layout">
+    <section class="login-panel" aria-labelledby="login-title">
+      <p class="eyebrow">DEIN ARCHIV BLEIBT PRIVAT</p><h1 id="login-title">Anmelden.</h1>
+      <p id="login-intro" class="intro">Melde Dich an, um auf Deine Dokumente zuzugreifen.</p>
+      <form id="login-form" hidden>
+        <div id="setup-fields" hidden><label for="setup-code">Einrichtungscode</label><input id="setup-code" type="password" autocomplete="off" maxlength="64" aria-describedby="setup-hint">
+          <p id="setup-hint" class="hint">Der einmalige Code liegt im Speicherverzeichnis der App in „setup-code.txt“. Nur wer Zugriff auf den Server hat, kann das erste Konto einrichten.</p>
+        </div>
+        <label for="username">Benutzername</label><input id="username" type="text" autocomplete="username" maxlength="64" value="admin" required>
+        <label for="password">Passwort</label><input id="password" type="password" autocomplete="current-password" maxlength="1024" required aria-describedby="password-hint">
+        <p id="password-hint" class="hint" hidden>Wähle ein Passwort mit mindestens 15 Zeichen, zum Beispiel eine lange Passphrase.</p>
+        <div id="password-confirm-field" hidden><label for="password-confirm">Passwort wiederholen</label><input id="password-confirm" type="password" autocomplete="new-password" maxlength="1024"></div>
+        <button id="login-submit" type="submit">Anmelden</button>
+      </form>
+      <p id="login-message" role="status" aria-live="polite">Anmeldung wird geladen …</p>
+      <noscript>Bitte JavaScript aktivieren, um Dich anzumelden.</noscript>
+    </section>
+  </main>
+  <footer><span>Lokale Suche · Prototyp</span><a href="https://github.com/Lauryx-star/AgenticArchive" target="_blank" rel="noopener noreferrer">Projekt und Quellcode</a></footer>
+</body>
+</html>

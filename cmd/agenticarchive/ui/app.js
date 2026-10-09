@@ -1,5 +1,6 @@
 'use strict';
 const $ = id => document.getElementById(id);
+let csrfToken = null, permissions = {}, statusTimer = null, currentUser = null, changingPassword = false;
 let currentPage = 1, lastSearch = null, requestNumber = 0;
 try { const saved = localStorage.getItem('theme'); if (['light', 'dark'].includes(saved)) { document.documentElement.dataset.theme = saved; $('theme').value = saved; } } catch {}
 $('theme').addEventListener('change', () => {
@@ -8,7 +9,10 @@ $('theme').addEventListener('change', () => {
   try { localStorage.setItem('theme', value); } catch {}
 });
 async function api(url, options) {
-  const response = await fetch(url, options);
+  const headers = new Headers(options?.headers);
+  if (options?.method && !['GET', 'HEAD'].includes(options.method.toUpperCase())) headers.set('X-CSRF-Token', csrfToken || '');
+  const response = await fetch(url, {...options, headers, credentials: 'same-origin', cache: 'no-store'});
+  if (response.status === 401) { if (!changingPassword) window.location.replace('/login'); throw new Error('Bitte erneut anmelden.'); }
   if (!response.ok) { const body = await response.json().catch(() => ({})); throw new Error(body.error || `HTTP ${response.status}`); }
   return response.status === 202 ? null : response.json();
 }
@@ -36,7 +40,7 @@ async function search(page) {
       card.append(element('h2', hit.path.split('/').pop()), element('p', hit.path, 'path'), highlightedExcerpt(hit));
       card.append(element('p', `Seite ${hit.page} · Datei geändert: ${new Date(hit.modified).toLocaleDateString('de-DE')}`, 'meta'));
       const link = element('a', 'PDF öffnen'); link.href = `/api/documents/${hit.document_id}/pdf#page=${hit.page}`; link.target = '_blank'; link.rel = 'noopener'; card.append(link);
-      const retry = element('button', 'OCR erneut ausführen', 'secondary'); retry.type = 'button'; retry.addEventListener('click', () => reprocess(hit.document_id, true, retry)); card.append(retry);
+      const retry = element('button', 'OCR erneut ausführen', 'secondary'); retry.type = 'button'; retry.addEventListener('click', () => reprocess(hit.document_id, true, retry)); if (permissions.manage_imports) card.append(retry);
       $('results').append(card);
     }
     $('message').textContent = result.total === 1 ? '1 passendes Dokument' : result.total ? `${result.total} passende Dokumente` : 'Keine passenden Dokumente gefunden.';
@@ -50,6 +54,8 @@ $('search-form').addEventListener('submit', event => { event.preventDefault(); l
 $('previous').addEventListener('click', () => search(currentPage - 1)); $('next').addEventListener('click', () => search(currentPage + 1));
 async function refreshStatus() {
   try {
+    const account = await api('/api/auth/me');
+    if (currentUser && account.user.role !== currentUser.role) { window.location.reload(); return; }
     const status = await api('/api/status');
     const signature = JSON.stringify([status.documents, status.ready, status.failed, status.queue?.pending, status.queue?.running, status.scan.finished]);
     if (documentView && signature !== archiveSignature) loadDocuments(documentPage);
@@ -65,8 +71,8 @@ async function refreshStatus() {
     $('failures-panel').hidden = !status.failures.length; $('failures').replaceChildren();
     for (const failure of status.failures) {
       const row = element('li', `${failure.path}: ${failure.error}`);
-      const retry = element('button', 'Erneut versuchen', 'secondary'); retry.type = 'button'; retry.addEventListener('click', () => reprocess(failure.id, false, retry)); row.append(retry);
-      const ocr = element('button', 'OCR erzwingen', 'secondary'); ocr.type = 'button'; ocr.addEventListener('click', () => reprocess(failure.id, true, ocr)); row.append(ocr);
+      const retry = element('button', 'Erneut versuchen', 'secondary'); retry.type = 'button'; retry.addEventListener('click', () => reprocess(failure.id, false, retry)); if (permissions.manage_imports) row.append(retry);
+      const ocr = element('button', 'OCR erzwingen', 'secondary'); ocr.type = 'button'; ocr.addEventListener('click', () => reprocess(failure.id, true, ocr)); if (permissions.manage_imports) row.append(ocr);
       $('failures').append(row);
     }
   } catch { $('archive-status').textContent = 'Verbindung zur Anwendung nicht verfügbar.'; }
@@ -92,7 +98,10 @@ function switchView(view) {
   $('search-view').hidden = documents || settings; $('documents-view').hidden = !documents; $('settings-view').hidden = !settings;
   $('show-search').setAttribute('aria-pressed', String(!documents && !settings)); $('show-documents').setAttribute('aria-pressed', String(documents));
   $('show-settings').setAttribute('aria-pressed', String(settings));
-  if (settings) loadSettings();
+  if (settings) {
+    if (permissions.manage_settings) loadSettings();
+    if (permissions.manage_users) loadUsers();
+  }
   if (documents) loadDocuments(documentPage);
 }
 $('show-search').addEventListener('click', () => switchView('search'));
@@ -133,10 +142,10 @@ async function loadDocuments(page, navigate = false) {
       if (doc.status === 'ready') {
         const text = element('button', 'Gespeicherten Text ansehen', 'secondary'); text.type = 'button'; text.addEventListener('click', () => openDocumentText(doc, text)); actions.append(text);
       }
-      if (doc.status === 'error') {
+      if (permissions.manage_imports && doc.status === 'error') {
         const retry = element('button', 'Erneut versuchen', 'secondary'); retry.type = 'button'; retry.addEventListener('click', () => reprocess(doc.id, false, retry)); actions.append(retry);
       }
-      if (doc.status === 'ready' || doc.status === 'error') {
+      if (permissions.manage_imports && (doc.status === 'ready' || doc.status === 'error')) {
         const ocr = element('button', 'OCR erneut ausführen', 'secondary'); ocr.type = 'button'; ocr.addEventListener('click', () => reprocess(doc.id, true, ocr)); actions.append(ocr);
       }
       card.append(actions); $('documents-results').append(card);
@@ -238,4 +247,23 @@ $('settings-form').addEventListener('submit', async event => {
   finally { if (request === settingsRequest) $('settings-save').disabled = false; }
 });
 
-refreshStatus(); setInterval(refreshStatus, 5000);
+async function initializeAccount() {
+  try {
+    const account = await api('/api/auth/me');
+    csrfToken = account.csrf_token; permissions = account.permissions; currentUser = account.user;
+    $('account-name').textContent = `${account.user.username} · ${account.user.role === 'admin' ? 'Administration' : 'Lesen'}`;
+    $('account-menu').hidden = false;
+    $('my-account-description').textContent = `${account.user.username} · ${account.user.role === 'admin' ? 'Administrator' : 'Benutzer mit Leserechten'}`;
+    $('archive-settings').hidden = !permissions.manage_settings;
+    $('user-management').hidden = !permissions.manage_users;
+    $('scan').hidden = $('verify').hidden = !permissions.manage_imports;
+    await refreshStatus(); statusTimer = setInterval(refreshStatus, 5000);
+  } catch (error) { $('message').textContent = `Anmeldung konnte nicht geladen werden: ${error.message}`; }
+}
+$('logout').addEventListener('click', async () => {
+  $('logout').disabled = true;
+  try { await api('/api/auth/logout', {method: 'POST'}); clearInterval(statusTimer); window.location.replace('/login'); }
+  catch (error) { $('message').textContent = `Abmelden fehlgeschlagen: ${error.message}`; $('logout').disabled = false; }
+});
+window.addEventListener('pageshow', event => { if (event.persisted) window.location.reload(); });
+initializeAccount();

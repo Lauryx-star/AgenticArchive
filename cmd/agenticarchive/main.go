@@ -7,6 +7,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"io/fs"
 	"log"
 	"net/http"
@@ -19,6 +20,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Lauryx-star/AgenticArchive/internal/access"
 	"github.com/Lauryx-star/AgenticArchive/internal/archive"
 )
 
@@ -44,6 +46,12 @@ func run() error {
 		command = os.Args[1]
 	}
 	flags := flag.NewFlagSet(command, flag.ContinueOnError)
+	secureDefault, err := strconv.ParseBool(env("AUTH_SECURE_COOKIE", "false"))
+	if err != nil {
+		return fmt.Errorf("AUTH_SECURE_COOKIE must be true or false")
+	}
+	secureCookie := flags.Bool("secure-cookie", secureDefault, "require HTTPS for authentication cookies (enable behind an HTTPS reverse proxy)")
+	username := flags.String("username", "admin", "administrator username for reset-admin")
 	root := flags.String("root", env("ARCHIVE_ROOT", "./archive"), "read-only PDF source directory")
 	data := flags.String("data", env("DATA_DIR", "./data"), "persistent index directory")
 	listen := flags.String("listen", env("LISTEN_ADDR", "127.0.0.1:8080"), "HTTP listen address")
@@ -57,8 +65,8 @@ func run() error {
 			return err
 		}
 	}
-	if command != "serve" && command != "scan" && command != "search" && command != "accept-source" {
-		return fmt.Errorf("unknown command %q; use serve, scan, search, or accept-source", command)
+	if command != "serve" && command != "scan" && command != "search" && command != "accept-source" && command != "reset-admin" {
+		return fmt.Errorf("unknown command %q; use serve, scan, search, accept-source, or reset-admin", command)
 	}
 	if *allowEmpty && command != "scan" {
 		return fmt.Errorf("allow-empty is only available for an explicit scan")
@@ -72,6 +80,28 @@ func run() error {
 	}
 	if err = os.MkdirAll(*data, 0750); err != nil {
 		return err
+	}
+	var auth *authService
+	if command == "serve" || command == "reset-admin" {
+		accounts, err := access.Open(filepath.Join(*data, "access.db"))
+		if err != nil {
+			return err
+		}
+		defer accounts.Close()
+		if command == "reset-admin" {
+			password, err := io.ReadAll(io.LimitReader(os.Stdin, 1027))
+			if err != nil {
+				return err
+			}
+			return accounts.ResetAdminPassword(context.Background(), *username, strings.TrimSuffix(strings.TrimSuffix(string(password), "\n"), "\r"))
+		}
+		auth, err = newAuth(accounts, *data, *secureCookie)
+		if err != nil {
+			return err
+		}
+		if auth.setupCode != "" {
+			log.Printf("Access locked until setup; read the one-time code from %s", auth.setupPath)
+		}
 	}
 	store, err := archive.Open(filepath.Join(*data, "archive.db"))
 	if err != nil {
@@ -128,10 +158,35 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	handler := archiveHandler(store, scanner, schedule, absRoot, absData, auth, func(full bool) {
+		work.Add(1)
+		go func() { defer work.Done(); scan(full) }()
+	})
+	server := &http.Server{Addr: *listen, Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16 << 10}
+	shutdownDone := make(chan struct{})
+	go func() {
+		defer close(shutdownDone)
+		<-ctx.Done()
+		shutdown, done := context.WithTimeout(context.Background(), 5*time.Second)
+		defer done()
+		server.Shutdown(shutdown)
+	}()
+	log.Printf("AgenticArchive listening on %s", *listen)
+	err = server.ListenAndServe()
+	if err == http.ErrServerClosed {
+		<-shutdownDone
+		return nil
+	}
+	return err
+}
+
+// All routes share authentication; administrative handlers additionally declare their permission.
+func archiveHandler(store *archive.Store, scanner *archive.Scanner, schedule *scanSchedule, absRoot, absData string, auth *authService, startScan func(bool)) http.Handler {
 	mux := http.NewServeMux()
 	settings := settingsHandler(store, schedule, absRoot, absData)
-	mux.Handle("GET /api/settings", settings)
-	mux.Handle("PUT /api/settings", settings)
+	auth.routes(mux)
+	mux.Handle("GET /api/settings", requirePermission(access.ManageSettings, settings))
+	mux.Handle("PUT /api/settings", requirePermission(access.ManageSettings, settings))
 	ui, _ := fs.Sub(assets, "ui")
 	mux.Handle("GET /", http.FileServer(http.FS(ui)))
 	mux.HandleFunc("GET /api/status", func(w http.ResponseWriter, r *http.Request) {
@@ -163,7 +218,7 @@ func run() error {
 		}
 		writeJSON(w, map[string]any{"source_error": sourceError, "scan": scanner.Status(), "queue": queue, "documents": len(docs), "ready": ready, "failed": failed, "failures": failures, "ocr_dimension": 2400, "ocr_workers": 1})
 	})
-	mux.HandleFunc("POST /api/documents/{id}/retry", func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("POST /api/documents/{id}/retry", requirePermission(access.ManageImports, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Sec-Fetch-Site") == "cross-site" {
 			apiError(w, 403, fmt.Errorf("cross-site request rejected"))
 			return
@@ -178,8 +233,8 @@ func run() error {
 			return
 		}
 		w.WriteHeader(http.StatusAccepted)
-	})
-	mux.HandleFunc("POST /api/scan", func(w http.ResponseWriter, r *http.Request) {
+	})))
+	mux.Handle("POST /api/scan", requirePermission(access.ManageImports, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Browser clients may only trigger scans from the same origin.
 		if r.Header.Get("Sec-Fetch-Site") == "cross-site" {
 			apiError(w, 403, fmt.Errorf("cross-site request rejected"))
@@ -190,10 +245,9 @@ func run() error {
 			return
 		}
 		full := r.URL.Query().Get("full") == "true"
-		work.Add(1)
-		go func() { defer work.Done(); scan(full) }()
+		startScan(full)
 		w.WriteHeader(http.StatusAccepted)
-	})
+	})))
 	mux.HandleFunc("GET /api/search", func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
 		page, err := parsePositive(q.Get("page"), 1)
@@ -292,22 +346,7 @@ func run() error {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		http.ServeFile(w, r, path)
 	})
-	server := &http.Server{Addr: *listen, Handler: mux, ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 60 * time.Second}
-	shutdownDone := make(chan struct{})
-	go func() {
-		defer close(shutdownDone)
-		<-ctx.Done()
-		shutdown, done := context.WithTimeout(context.Background(), 5*time.Second)
-		defer done()
-		server.Shutdown(shutdown)
-	}()
-	log.Printf("AgenticArchive listening on %s", *listen)
-	err = server.ListenAndServe()
-	if err == http.ErrServerClosed {
-		<-shutdownDone
-		return nil
-	}
-	return err
+	return auth.protect(mux)
 }
 
 func parsePositive(raw string, fallback int) (int, error) {
