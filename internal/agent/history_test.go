@@ -92,3 +92,19 @@ func TestCompressionPreservesCitedFindingsWhenModelDropsThem(t *testing.T) {
 		t.Fatalf("lost findings: %+v %v", answer, err)
 	}
 }
+
+func TestFreshReadReplacesImportedSourceReceipt(t *testing.T) {
+	calls, reads := 0, 0
+	client := researchClient(t, func(body string) string {
+		calls++
+		if calls == 1 {
+			return modelTool("read_page", `{"document_id":7,"page":1,"offset":0}`)
+		}
+		return modelText("Neu geprüft [Dokument 7, Seite 1]")
+	}, &reads)
+	runner := Runner{Client: client, Provider: "ollama", APIURL: "http://model.invalid/responses", MCPURL: "http://archive.invalid/mcp"}
+	answer, err := runner.Run(context.Background(), "archive-token", Request{Messages: []Message{{Role: "user", Content: "Alt?"}, {Role: "assistant", Content: "Alter Verweis [Dokument 7, Seite 1]", Sources: []Source{{DocumentID: 7, Page: 1, Imported: true, Revision: "old"}}}, {Role: "user", Content: "Bitte neu prüfen"}}})
+	if err != nil || reads != 1 || len(answer.Sources) != 1 || answer.Sources[0].Imported || answer.Sources[0].Revision != "" {
+		t.Fatalf("fresh read inherited old source state: %+v %v", answer, err)
+	}
+}

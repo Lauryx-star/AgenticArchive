@@ -56,7 +56,12 @@ Limits also apply to extracted text (4 MiB/page, 16 MiB/document) and page count
 
 ## Optional chat and agent access
 
-The Chat tab sits between Search and Documents. All services use one `compose.yaml`.
+The Chat tab sits between Search and Documents. Chats are saved per user in
+`access.db`, including full successful messages, research results, sources and
+editable notes. Reopen them after a reload or restart, or select two to five chats
+to continue their combined research in a new conversation. Stored results survive
+model-context compression; the model's working context still has bounded limits.
+All services use one `compose.yaml`.
 Enable the optional agent with `COMPOSE_PROFILES=${LLM_PROVIDER}` and set `AGENT_URL` in `.env`;
 select OpenAI or local Ollama with `LLM_PROVIDER`.
 Copy [`.env.example`](.env.example) to `.env` for documented model and archive settings.

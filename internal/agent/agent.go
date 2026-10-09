@@ -40,9 +40,12 @@ type Request struct {
 	Context  string    `json:"context,omitempty"`
 }
 type Source struct {
-	DocumentID int64  `json:"document_id"`
-	Page       int    `json:"page"`
-	Path       string `json:"path"`
+	DocumentID  int64  `json:"document_id"`
+	Page        int    `json:"page"`
+	Path        string `json:"path"`
+	Revision    string `json:"revision,omitempty"`
+	Unavailable bool   `json:"unavailable,omitempty"`
+	Imported    bool   `json:"imported,omitempty"`
 }
 type Answer struct {
 	Text      string    `json:"text"`
@@ -215,7 +218,7 @@ func (runner *Runner) Run(ctx context.Context, token string, request Request) (a
 		if err != nil {
 			return
 		}
-		answer.Sources = mergeSources(referencedSources(answer.Text, historySources(request.Messages)), answer.Sources)
+		answer.Sources = mergeSources(answer.Sources, referencedSources(answer.Text, historySources(request.Messages)))
 		answer.History = append(append([]Message{}, request.Messages...), Message{Role: "assistant", Content: answer.Text, Sources: answer.Sources})
 	}()
 	if request.Mode == "summary" {

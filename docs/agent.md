@@ -163,12 +163,42 @@ permissions have been implemented yet.** All readers currently read the same arc
 
 ## Chat limits and evidence
 
-Chat history lives only in the current browser tab's memory and is cleared by
-reload or navigation away from the page. The browser carries a signed, user-bound
-working context containing successful answers and their source receipts. Each
-continuation still requires a current session and CSRF; a tampered context or
-one belonging to another user is rejected. Context expires after 12 hours of
-inactivity and is not encrypted or a durable conversation database.
+Chats, the full successful transcript, research results with source receipts,
+open questions extracted from answer sections, user-editable research notes,
+and bounded working memory are stored in `access.db` in the archive data volume.
+They survive page reloads, logout, container restarts and document reindexing.
+Each record belongs to one user; administrators do not get access to other users'
+chats. All chat mutations require the normal session and CSRF checks.
+
+The Chat UI lists saved conversations (100 per page), supports opening, naming,
+editing research notes and deleting a conversation. **Früheren Verlauf übernehmen**
+can save a pasted older transcript (up to 32 KB); source markers are resolved to
+existing index entries, but are explicitly labelled imported and not newly
+verified. A fresh tool read replaces that imported receipt. Deletion cascades to its
+messages and results. The current conversation ID alone is remembered in browser
+session storage under the user ID; no transcript is stored there. Notes are sent
+to the configured model along with the next question. Working memory is loaded
+from the server, never accepted from the browser. Version checks reject stale
+updates or overlapping answers rather than replacing newer work; failed model
+requests do not append messages or results. Answer, result and working-memory
+updates commit together in one SQLite transaction.
+
+Select two to five owned chats and choose **Ausgewählte Chats zusammenführen**.
+This creates a new conversation with snapshots of their current working contexts,
+source receipts and notes, recording the original titles, IDs and versions.
+It does not alter the original chats and still works if an original chat is later
+deleted. The UI offers a synthesis question in summary mode; the user sends it to
+run the model. A selection beyond the bounded model input budget is explicitly
+rejected, without silently dropping results. There is no automatic cross-chat
+retrieval or vector index in this stage.
+
+New source receipts include the indexed document fingerprint. Missing or changed
+sources are marked unavailable in historical views and are not linked as verified
+current documents. Historical synthesis remains possible with that caveat; new
+archive research with an outdated working context asks for a fresh chat. Existing
+receipts without a fingerprint can only be checked for document/page existence.
+Legacy stateless clients using signed context remain supported; the new UI uses
+saved chat IDs and versions and does not depend on the old 12-hour context token.
 
 Choose **Im Archiv recherchieren** for new evidence, or **Bisherige Ergebnisse
 zusammenführen** for synthesis of previous partial results without archive tool

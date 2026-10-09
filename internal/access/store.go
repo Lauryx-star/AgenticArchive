@@ -95,7 +95,25 @@ CREATE TABLE IF NOT EXISTS agent_tokens (
  name TEXT NOT NULL, token_hash BLOB NOT NULL UNIQUE, created INTEGER NOT NULL, expires INTEGER NOT NULL,
  temporary INTEGER NOT NULL DEFAULT 0
 );
-CREATE INDEX IF NOT EXISTS agent_tokens_user ON agent_tokens(user_id);`)
+CREATE INDEX IF NOT EXISTS agent_tokens_user ON agent_tokens(user_id);
+CREATE TABLE IF NOT EXISTS chats (
+ id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+ title TEXT NOT NULL, created INTEGER NOT NULL, updated INTEGER NOT NULL,
+ version INTEGER NOT NULL DEFAULT 1, working TEXT NOT NULL DEFAULT '[]', notes TEXT NOT NULL DEFAULT '', imports TEXT NOT NULL DEFAULT '[]'
+);
+CREATE INDEX IF NOT EXISTS chats_user_updated ON chats(user_id, updated DESC);
+CREATE TABLE IF NOT EXISTS chat_messages (
+ id INTEGER PRIMARY KEY AUTOINCREMENT, chat_id INTEGER NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
+ role TEXT NOT NULL CHECK(role IN ('user','assistant')), content TEXT NOT NULL, sources TEXT NOT NULL DEFAULT '[]', created INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS chat_messages_chat ON chat_messages(chat_id,id);
+CREATE TABLE IF NOT EXISTS chat_results (
+ id INTEGER PRIMARY KEY AUTOINCREMENT, chat_id INTEGER NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
+ message_id INTEGER NOT NULL REFERENCES chat_messages(id) ON DELETE CASCADE,
+ content TEXT NOT NULL, sources TEXT NOT NULL, partial INTEGER NOT NULL, open_questions TEXT NOT NULL, created INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS chat_results_chat ON chat_results(chat_id,id);
+CREATE INDEX IF NOT EXISTS chats_user_id ON chats(user_id,id DESC);`)
 	if err != nil {
 		db.Close()
 		return nil, err

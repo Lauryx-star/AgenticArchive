@@ -40,6 +40,29 @@
         <button type="button" class="secondary" data-question="Erstelle eine Energiekostenübersicht der letzten 10 Jahre anhand meiner Rechnungen. Nenne Abrechnungszeiträume, Beträge, Quellen und fehlende Jahre.">Energiekosten vergleichen</button>
       </div>
       <p id="chat-state" class="hint" role="status" aria-live="polite">Agent-Verbindung wird geprüft …</p>
+      <details id="saved-chats-panel" class="saved-chats" open>
+        <summary>Deine gespeicherten Recherchen</summary>
+        <p class="hint">Öffne einen Chat oder markiere zwei bis fünf Chats, um deren Ergebnisse in einer neuen Recherche zusammenzuführen.</p>
+        <div id="saved-chats-list" aria-label="Gespeicherte Chats"></div>
+        <details><summary>Früheren Verlauf übernehmen</summary>
+          <form id="chat-import-form"><label for="chat-import-text">Bisheriger Chatverlauf</label><textarea id="chat-import-text" rows="4" maxlength="8000" required placeholder="Kopiere hier einen bisherigen Chatverlauf hinein."></textarea>
+          <p class="hint">Der Text wird für Dein Konto gespeichert. Enthaltene Aussagen und Quellenverweise werden bei der Übernahme nicht neu geprüft.</p><button id="chat-import-save" type="submit" class="secondary">Verlauf übernehmen</button></form>
+        </details>
+        <div class="chat-actions"><button id="chat-merge" type="button" class="secondary" disabled>Ausgewählte Chats zusammenführen</button><button id="chat-more" type="button" class="secondary" hidden>Weitere Chats laden</button></div>
+      </details>
+      <div id="chat-saved-info" hidden>
+        <h2 id="chat-current-title"></h2><p id="chat-imports" class="hint"></p>
+        <details><summary>Recherchegedächtnis und offene Fragen</summary>
+          <form id="chat-notes-form">
+            <label for="chat-name">Chat-Titel</label><input id="chat-name" maxlength="120" required>
+            <label for="chat-notes">Offene Fragen und eigene Hinweise</label><textarea id="chat-notes" rows="3" maxlength="1000" placeholder="Welche Punkte sollen bei der nächsten Teilrecherche berücksichtigt werden?"></textarea>
+            <button id="chat-notes-save" type="submit" class="secondary">Titel und Hinweise speichern</button>
+          </form>
+          <p class="hint">Ergebnisse und Quellen werden zusätzlich zum vollständigen Verlauf gespeichert. Teilrecherchen bleiben als unvollständig gekennzeichnet.</p>
+          <div id="chat-results"></div>
+        </details>
+        <div class="chat-actions"><button id="chat-refresh" type="button" class="secondary">Chat neu laden</button><button id="chat-delete" type="button" class="secondary">Chat löschen</button></div>
+      </div>
       <div id="chat-messages" role="log" aria-label="Chatverlauf" aria-live="polite" aria-busy="false"></div>
       <form id="chat-form">
         <label for="chat-mode">Arbeitsweise</label><select id="chat-mode" disabled><option value="research">Im Archiv recherchieren</option><option value="summary">Bisherige Ergebnisse zusammenführen</option></select>
@@ -47,7 +70,7 @@
         <div class="chat-actions"><button id="chat-send" type="submit" disabled>Frage senden</button><button id="chat-new" type="button" class="secondary">Neuer Chat</button></div>
       </form>
       <p id="chat-message" role="status" aria-live="polite"></p>
-      <p class="hint">Der Chat sendet Deine Frage, den Recherchekontext und abgerufene Textstellen an das konfigurierte Sprachmodell. Große Fragen kannst Du in Teilrecherchen aufteilen und danach die Ergebnisse zusammenführen. Lange Verläufe werden verdichtet; dabei können Details verloren gehen. Prüfe Beträge und Zeiträume anhand der Quellen. Der Verlauf bleibt in diesem Tab und wird beim Neuladen gelöscht.</p>
+      <p class="hint">Der Chat sendet Deine Frage, den Recherchekontext und abgerufene Textstellen an das konfigurierte Sprachmodell. Große Fragen kannst Du in Teilrecherchen aufteilen und danach die Ergebnisse zusammenführen. Lange Verläufe werden verdichtet; dabei können Details verloren gehen. Prüfe Beträge und Zeiträume anhand der Quellen. Chats, Ergebnisse, Quellen und Hinweise werden dauerhaft für Dein Benutzerkonto gespeichert. Du kannst Chats später wieder öffnen oder löschen.</p>
     </section>
     <section id="documents-view" aria-labelledby="documents-title" hidden>
       <p class="eyebrow">DEIN ARCHIV IM ÜBERBLICK</p><h1 id="documents-title" tabindex="-1">Alle Dokumente.</h1>
