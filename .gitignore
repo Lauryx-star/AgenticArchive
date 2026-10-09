@@ -2,6 +2,9 @@
 /archive/
 /bin/
 /.env
+/secrets/
 *.db
 *.db-shm
 *.db-wal
+
+.DS_Store
