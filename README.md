@@ -6,8 +6,8 @@ This is an early prototype, not a finished release. It recursively indexes PDFs,
 extracts page text, runs German/English OCR on pages with fewer than 20 letters,
 and provides word/phrase search with page references. Everything runs locally.
 
-PR security scanning and manual merge protection setup (German):
-[Sicherheitsprüfungen und bewusster Admin-Bypass](docs/security-checks.md).
+PR security scanning and manual merge protection setup:
+[Security checks and intentional admin bypass](docs/security-checks.md).
 
 ## Run with Docker
 

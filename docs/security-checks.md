@@ -1,118 +1,111 @@
-# Sicherheitsprüfungen und Merge-Schutz
+# Security Checks and Merge Protection
 
-**Dieser PR aktiviert keine Repository-Regeln.** Ein roter Workflow allein
-verhindert keinen Merge. Lauryx-star muss diesen PR mergen und anschließend die
-unten beschriebene Regel aktivieren, damit normale künftige Merges blockiert werden.
-Es werden weder Einstellungen automatisch geändert noch PATs benötigt.
+**This PR does not enable repository rules.** A failing workflow alone does not
+prevent a merge. Lauryx-star must merge this PR and then enable the rule described
+below to block normal future merges. No settings are changed automatically, and no
+PATs are required.
 
-## Prüfungen
+## Checks
 
-`.github/workflows/security.yml` läuft für **alle Pull Requests**, auch aus Forks,
-bei Erstellung, Wiederöffnung und jedem neuen Commit, bei Push auf `main`,
-manuell über **Actions → Security → Run workflow** und montags um 06:23 UTC.
-Keine Pfadfilter; neuere PR-Läufe brechen überholte Läufe ab.
+`.github/workflows/security.yml` runs for **all pull requests**, including those
+from forks, when opened, reopened, and whenever a new commit is pushed; on pushes
+to `main`; manually via **Actions → Security → Run workflow**; and every Monday
+at 06:23 UTC. There are no path filters; newer PR runs cancel outdated runs.
 
-| Job | Abdeckung und Fehlerverhalten |
+| Job | Coverage and failure behavior |
 | --- | --- |
-| Go vulnerabilities | govulncheck v1.8.0; Go aus `go.mod`, CGO aktiviert. `-scan=module` blockiert bekannte Schwachstellen in Abhängigkeiten auch ohne nachgewiesene Erreichbarkeit; `-scan=package -tags=sqlite_fts5` prüft importierte Pakete der FTS5-Konfiguration. Anders als der normale Symbolmodus werden nicht nur aufrufbare verwundbare Funktionen bewertet. |
-| Static security analysis | Semgrep 1.179.0 mit den Sicherheitsverzeichnissen `go/lang/security`, `javascript/lang/security`, `python/lang/security` aus dem gepflegten Upstream `semgrep/semgrep-rules`, fest auf Commit `a84ff9cc2453ca91d581380de4b8b3f272f6f4be` gepinnt. `--error --strict` lässt Befunde und Scan-/Konfigurationsfehler scheitern; `nosemgrep`-Kommentare unterdrücken keine Befunde. |
-| Repository vulnerabilities, secrets and configuration | Trivy 0.75.0 prüft Abhängigkeiten (u. a. `go.sum`), Secrets und unterstützte Fehlkonfigurationen (u. a. Dockerfile). Secret-Werte werden in Trivys Tabellenbericht maskiert. |
-| Container vulnerabilities | Lokaler Docker-Build einschließlich bestehender Go-Tests; Trivy prüft das fertige Image einschließlich Debian, Poppler, Tesseract und Go-Binary. Kein Image-Push, kein Registry-Login. |
-| **Security gate** | Läuft mit `always()` und ist nur erfolgreich, wenn **alle vier** Scan-Jobs erfolgreich waren. Fehler, Abbruch, unerwartetes Überspringen und Scanner-/Download-/Buildfehler führen nicht zu einem grünen Gate. Ein vollständig abgebrochener Lauf liefert ebenfalls keinen erfolgreichen Pflichtcheck. |
+| Go vulnerabilities | govulncheck v1.8.0; Go version from `go.mod`, with CGO enabled. `-scan=module` blocks known vulnerabilities in dependencies even without proven reachability; `-scan=package -tags=sqlite_fts5` checks imported packages in the FTS5 configuration. Unlike the default symbol mode, it does not evaluate only vulnerable functions that can be called. |
+| Static security analysis | Semgrep 1.179.0 with the `go/lang/security`, `javascript/lang/security`, and `python/lang/security` security directories from the maintained upstream `semgrep/semgrep-rules`, pinned to commit `a84ff9cc2453ca91d581380de4b8b3f272f6f4be`. `--error --strict` fails on findings and scan/configuration errors; `nosemgrep` comments do not suppress findings. |
+| Repository vulnerabilities, secrets and configuration | Trivy 0.75.0 checks dependencies (including `go.sum`), secrets, and supported misconfigurations (including Dockerfile). Secret values are masked in Trivy's table report. |
+| Container vulnerabilities | Local Docker build, including existing Go tests; Trivy scans the finished image, including Debian, Poppler, Tesseract, and the Go binary. No image push or registry login. |
+| **Security gate** | Runs with `always()` and succeeds only if **all four** scan jobs succeeded. Failures, cancellations, unexpected skips, and scanner/download/build errors do not result in a green gate. A completely cancelled run also does not produce a successful required check. |
 
-Alle Semgrep-Befundstufen und alle von Trivy unterstützten Schweregrade
-**UNKNOWN, LOW, MEDIUM, HIGH, CRITICAL** blockieren. Auch Schwachstellen ohne
-verfügbaren Fix bleiben Befunde; keine Baseline, kein `continue-on-error`,
-kein `--ignore-unfixed`. Trivy verwendet keine Repository-Ignoredatei,
-Repository-Konfiguration oder eigene Secret-Konfiguration. Ein vorgeschalteter
-Check lehnt Inline-Unterdrückungen für Trivy/tfsec ab, da diese sonst Befunde vor
-der Auswertung entfernen können. Auch Trivys protokollierte ERROR/FATAL-Meldungen
-(z. B. Rückfall auf eingebettete Checks nach Downloadfehlern) lassen den
-Repository-Job scheitern. govulncheck hat keinen Schweregradfilter.
+All Semgrep finding levels and all Trivy-supported severities
+**UNKNOWN, LOW, MEDIUM, HIGH, CRITICAL** block. Vulnerabilities without an
+available fix remain findings; there is no baseline, no `continue-on-error`, and
+no `--ignore-unfixed`. Trivy does not use a repository ignore file, repository
+configuration, or custom secret configuration. A preceding check rejects inline
+Trivy/tfsec suppressions because they could otherwise remove findings before
+evaluation. Trivy's logged ERROR/FATAL messages (for example, falling back to
+embedded checks after download failures) also fail the repository job. govulncheck
+has no severity filter.
 
-Die Jobs verwenden `pull_request`, **nicht** `pull_request_target`, nur lesende
-Repository-Berechtigungen und Checkouts ohne gespeicherte Credentials. Es gibt
-keine Repository-Secrets oder privilegierten Owner-Tokens. Unvertrauenswürdiger
-PR-Code wird nur auf kurzlebigen GitHub-Runnern ausgeführt, nie im Owner-Kontext.
+The jobs use `pull_request`, **not** `pull_request_target`, read-only repository
+permissions, and checkouts without persisted credentials. There are no repository
+secrets or privileged owner tokens. Untrusted PR code runs only on ephemeral GitHub
+runners, never in the owner's context.
 
-## Rote Checks untersuchen
+## Investigating failing checks
 
-Im PR **Checks → Security → fehlgeschlagener Job → Scan-Schritt** öffnen.
-Die Logs zeigen Regel-/Vulnerability-ID, Datei/Paket, Schweregrad und gegebenenfalls
-eine reparierte Version. Das Gate protokolliert nur die Job-Ergebnisse.
-Es werden keine Reports/Artefakte mit Secret-Werten hochgeladen. Gefundene Secrets
-umgehend widerrufen/rotieren, dann entfernen; nicht in Kommentare kopieren.
-Semgrep kann Quellcodeausschnitte ausgeben, und Docker protokolliert den Build:
-keine Credentials in Quellcode oder Build-Kommandos ablegen.
-Scannerfehler (z. B. Netzwerk, Datenbank, Parser oder Timeout) beheben und erneut
-ausführen; ein fehlender Scan ist kein Sicherheitsnachweis.
+In the PR, open **Checks → Security → failed job → scan step**. The logs show the
+rule/vulnerability ID, file/package, severity, and, where available, a fixed
+version. The gate logs only job results. No reports/artifacts containing secret
+values are uploaded. Revoke/rotate any discovered secrets immediately, then remove
+them; do not copy them into comments. Semgrep may output source-code excerpts, and
+Docker logs the build: do not put credentials in source code or build commands.
+Resolve scanner errors (e.g. network, database, parser, or timeout errors) and
+rerun; a missing scan is not evidence of security.
 
-## Main schützen: manuelle Einrichtung durch den Owner
+## Protecting `main`: manual setup by the owner
 
-1. Diesen PR mergen; falls nötig einen ersten Workflow-Lauf abwarten oder
-   auf `main` manuell starten. Erst danach ist der Check gegebenenfalls auswählbar.
-2. [Settings → Rules → Rulesets](https://github.com/Lauryx-star/AgenticArchive/settings/rules)
-   öffnen. Bestehende Regeln prüfen; bei bereits passender Regel diese bearbeiten,
-   statt ein widersprüchliches Duplikat anzulegen. Sonst **New ruleset →
-   New branch ruleset**, Name beispielsweise `Main security`.
-3. **Enforcement status: Active** auswählen (nicht Disabled/Evaluate).
-4. Unter **Target branches → Add a target → Include default branch** wählen;
-   aktuell ist das `main`. Keine Ausnahme für `main` hinzufügen.
-5. **Require a pull request before merging** aktivieren.
-6. **Require status checks to pass → Add checks**: exakt **`Security gate`**
-   hinzufügen, als Quelle **GitHub Actions** auswählen. **Require branches to be
-   up to date before merging** aktivieren. Keine weiteren Scan-Einzeljobs als
-   Pflichtchecks nötig.
-7. **Bypass list → Add bypass**: Rolle **Repository admin** hinzufügen.
-   Rechts neben **Always allow** den Modus **For pull requests only** auswählen.
-   Nicht „Always allow“ belassen: der Bypass soll keinen direkten Push erlauben.
-8. Einstellungen prüfen und **Create / Save changes** bestätigen. Danach an
-   einem Test-PR kontrollieren, dass ein roter `Security gate` den normalen Merge
-   blockiert und ein aktueller grüner Check den normalen Merge erlaubt.
+1. Merge this PR; if needed, wait for an initial workflow run or start one manually
+   on `main`. The check may only become selectable after that.
+2. Open [Settings → Rules → Rulesets](https://github.com/Lauryx-star/AgenticArchive/settings/rules).
+   Review existing rules; if a matching rule already exists, edit it instead of
+   creating a conflicting duplicate. Otherwise, select **New ruleset →
+   New branch ruleset**, with a name such as `Main security`.
+3. Select **Enforcement status: Active** (not Disabled/Evaluate).
+4. Under **Target branches → Add a target → Include default branch**, select the
+   default branch; it is currently `main`. Do not add an exception for `main`.
+5. Enable **Require a pull request before merging**.
+6. Under **Require status checks to pass → Add checks**, add exactly **`Security gate`**
+   and select **GitHub Actions** as the source. Enable **Require branches to be
+   up to date before merging**. No individual scan jobs need to be required.
+7. Under **Bypass list → Add bypass**, add the **Repository admin** role. Select
+   **For pull requests only** beside **Always allow**. Do not leave it as “Always
+   allow”: the bypass must not permit direct pushes.
+8. Review the settings and confirm **Create / Save changes**. Then verify on a test
+   PR that a failing `Security gate` blocks a normal merge and a current passing
+   check permits a normal merge.
 
-Lauryx-star besitzt aktuell die Admin-Rolle und kann dadurch bei einem roten
-Check im PR-Merge-Dialog bewusst die angebotene Option zum Umgehen der Regeln
-wählen und den Merge bestätigen. Den Grund und akzeptierte Risiken im PR
-dokumentieren; der Scan bleibt rot. **Dieser Bypass gilt auch für künftige
-Repository-Administratoren, nicht exklusiv für den Benutzernamen Lauryx-star.**
-Andere überlappende Rulesets/Branch-Protection-Regeln können einen Merge weiterhin
-verhindern und müssen separat berücksichtigt werden.
+Lauryx-star currently has the admin role and can therefore choose the offered option
+to bypass the rules in the PR merge dialog when a check is failing, then confirm the
+merge. Document the reason and accepted risks in the PR; the scan remains red.
+**This bypass also applies to future repository administrators, not exclusively to
+the Lauryx-star username.** Other overlapping rulesets/branch-protection rules may
+still prevent a merge and must be considered separately.
 
-Offizielle Anleitung:
-[Ruleset erstellen und PR-only-Bypass konfigurieren](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/creating-rulesets-for-a-repository),
-[verfügbare Regeln und Pflichtchecks](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/available-rules-for-rulesets).
+Official guidance:
+[Create a ruleset and configure a PR-only bypass](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/creating-rulesets-for-a-repository),
+[available rules and required checks](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/available-rules-for-rulesets).
 
-## Wartung und Grenzen
+## Maintenance and limitations
 
-Action-Referenzen sind vollständige verifizierte Commit-SHAs mit Release-Kommentar.
-Scanner und Semgrep-Regeln sind fest versioniert; Trivy-Downloads werden vor
-Ausführung gegen die offizielle SHA-256-Prüfsumme geprüft. Bei Updates Release,
-SHA/Prüfsumme und CLI-Optionen upstream prüfen, Pins in allen betroffenen Jobs
-anpassen und Workflow sowie positive/negative Scan-Beispiele erneut testen.
-Die Gate-/Unterdrückungstests laufen im statischen Job; lokal nach der
-Semgrep-Installation mit dessen Python-Umgebung:
-`python scripts/test-security-workflow.py` (benötigt das von Semgrep mitinstallierte
-`ruamel.yaml` und `jq`).
-Sicherheitsdatenbanken aktualisieren sich beim Scan. Pip-Abhängigkeiten von
-Semgrep, Runner-Images, Go-Patchversionen und Docker-Basisimages sind nicht
-vollständig eingefroren; aktuelle Daten/OS-Pakete können ohne Codeänderung neue
-Befunde erzeugen.
+Action references are full, verified commit SHAs with release comments. Scanner
+and Semgrep rule versions are pinned; Trivy downloads are verified against the
+official SHA-256 checksum before execution. For updates, check the upstream release,
+SHA/checksum, and CLI options; update pins in all affected jobs and retest the
+workflow and positive/negative scan examples. Gate/suppression tests run in the
+static job; locally, after installing Semgrep, run in its Python environment:
+`python scripts/test-security-workflow.py` (requires `ruamel.yaml`, installed with
+Semgrep, and `jq`).
+Security databases update during each scan. Semgrep pip dependencies, runner images,
+Go patch versions, and Docker base images are not fully pinned; current data/OS
+packages can produce new findings without a code change.
 
-Kein Scanner findet alle Sicherheitsprobleme. Semgrep OSS bietet begrenzte
-statische Analyse und hier Sprachregeln, nicht sämtliche Framework-Regeln.
-Trivy erkennt nur unterstützte Pakete/Dateiformate und Secret-Muster, keinen
-vollständigen Git-Verlauf und keine beliebige Compose- oder Laufzeitkonfiguration.
-Die Scanner haben eingebaute Dateifilter/Allowlisten, etwa für bestimmte
-Test-/Beispieldateien; ein grüner Secret-Scan garantiert deshalb keine
-Secret-Freiheit sämtlicher Dateien.
-govulncheck deckt bekannte Go-Advisories ab, nicht automatisch alle Schwachstellen
-im C-Code des SQLite-Treibers. Das Image ergänzt OS-Pakete, ersetzt aber weder
-Laufzeittests noch manuelle Reviews, Zugriffsschutz oder eine Threat-Analyse.
-Fehlalarme und bestehende Befunde werden nicht automatisch ausgeblendet.
+No scanner finds every security issue. Semgrep OSS provides limited static analysis
+and language rules here, not all framework rules. Trivy detects only supported
+packages/file formats and secret patterns; it does not scan the complete Git history
+or arbitrary Compose/runtime configuration. The scanners have built-in file
+filters/allowlists, for example for certain test/sample files; therefore, a green
+secret scan does not guarantee that every file is free of secrets.
+govulncheck covers known Go advisories; it does not automatically cover every
+vulnerability in the SQLite driver's C code. The image scan adds OS packages, but
+does not replace runtime tests, manual reviews, access controls, or threat analysis.
+False positives and existing findings are not automatically suppressed.
 
-Änderungen am Workflow selbst können Prüfungen schwächen; solche PRs besonders
-sorgfältig reviewen. Ein Pflichtcheck mit GitHub-Actions-Quelle ist keine Garantie
-für unveränderte Workflow-Inhalte. Fork-PRs benötigen je nach GitHub-Einstellung
-zunächst eine manuelle Freigabe zum Ausführen; bis zum erfolgreichen Lauf fehlt
-der erforderliche Check. Merge Queue ist nicht konfiguriert (dafür wäre zusätzlich
-ein `merge_group`-Trigger nötig).
+Changes to the workflow itself can weaken checks; review such PRs especially
+carefully. A required check sourced from GitHub Actions does not guarantee that
+workflow contents remain unchanged. Depending on GitHub settings, fork PRs first
+require manual approval to run; the required check is missing until a successful
+run. Merge Queue is not configured (it would also require a `merge_group` trigger).
