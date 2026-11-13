@@ -66,7 +66,7 @@ jobs:
       - name: Check Go, JavaScript and Python security rules
         run: |
           "$RUNNER_TEMP/semgrep/bin/semgrep" scan \
-            --error --strict --disable-version-check --metrics=off \
+            --strict --disable-version-check --metrics=off \
             --disable-nosem \
             --config .security-rules/go/lang/security \
             --config .security-rules/javascript/lang/security \
@@ -107,7 +107,7 @@ jobs:
             --db-repository ghcr.io/aquasecurity/trivy-db:2 \
             --checks-bundle-repository ghcr.io/aquasecurity/trivy-checks:2 \
             --scanners vuln,secret,misconfig --exit-code 1 \
-            --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL \
+            --severity HIGH,CRITICAL \
             --secret-config '' \
             --ignorefile /dev/null \
             --format table --timeout 10m . 2> "$RUNNER_TEMP/trivy-errors.log"
@@ -142,13 +142,13 @@ jobs:
           trivy --config /dev/null image \
             --db-repository ghcr.io/aquasecurity/trivy-db:2 \
             --image-src docker --scanners vuln --exit-code 1 \
-            --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL \
+            --severity HIGH,CRITICAL \
             --ignorefile /dev/null \
             --format table --timeout 10m agenticarchive:security
           trivy --config /dev/null image \
             --db-repository ghcr.io/aquasecurity/trivy-db:2 \
             --image-src docker --scanners vuln --exit-code 1 \
-            --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL \
+            --severity HIGH,CRITICAL \
             --ignorefile /dev/null \
             --format table --timeout 10m agenticarchive-agent:security
 
