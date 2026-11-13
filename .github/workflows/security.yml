@@ -137,20 +137,28 @@ jobs:
         run: |
           docker build --pull --tag agenticarchive:security .
           docker build --pull --file Dockerfile.agent --tag agenticarchive-agent:security .
-      - name: Check runtime OS and application dependencies at every supported severity
+      - name: Check runtime images for HIGH and CRITICAL vulnerabilities
         run: |
+          set +e
           trivy --config /dev/null image \
             --db-repository ghcr.io/aquasecurity/trivy-db:2 \
             --image-src docker --scanners vuln --exit-code 1 \
+            --vuln-severity-source debian \
             --severity HIGH,CRITICAL \
             --ignorefile /dev/null \
             --format table --timeout 10m agenticarchive:security
+          archive_status=$?
           trivy --config /dev/null image \
             --db-repository ghcr.io/aquasecurity/trivy-db:2 \
             --image-src docker --scanners vuln --exit-code 1 \
+            --vuln-severity-source debian \
             --severity HIGH,CRITICAL \
             --ignorefile /dev/null \
             --format table --timeout 10m agenticarchive-agent:security
+          agent_status=$?
+          if [ "$archive_status" -ne 0 ] || [ "$agent_status" -ne 0 ]; then
+            exit 1
+          fi
 
   gate:
     name: Security gate

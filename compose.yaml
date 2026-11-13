@@ -47,6 +47,11 @@ services:
     memswap_limit: 512m
     cpus: 1.0
     init: true
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=128m
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
     restart: unless-stopped
     stop_grace_period: 15s
 

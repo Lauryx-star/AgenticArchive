@@ -52,7 +52,9 @@ The container is limited to 512 MiB with no additional swap and one CPU. OCR is
 serial and limited to a 2400-pixel longest image dimension. This is a test target,
 not a guarantee for arbitrary PDFs. Scaling down may reduce OCR accuracy.
 Limits also apply to extracted text (4 MiB/page, 16 MiB/document) and page count
-(2000/document). Tool operations time out after two minutes each.
+(2000/document). Tool operations time out after two minutes each. The container's
+root filesystem is read-only; its Linux capabilities are dropped, and temporary
+files use a bounded, non-executable `/tmp` filesystem.
 
 ## Optional chat and agent access
 
