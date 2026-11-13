@@ -6,7 +6,7 @@ COPY . .
 RUN CGO_ENABLED=1 go test -tags sqlite_fts5 ./...
 RUN CGO_ENABLED=1 go build -tags sqlite_fts5 -trimpath -o /agenticarchive ./cmd/agenticarchive
 
-FROM debian:bookworm-slim
+FROM debian:trixie-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates poppler-utils tesseract-ocr tesseract-ocr-deu tesseract-ocr-eng \
     && rm -rf /var/lib/apt/lists/* \
