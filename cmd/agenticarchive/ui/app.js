@@ -61,7 +61,11 @@ async function refreshStatus() {
     if (documentView && signature !== archiveSignature) loadDocuments(documentPage);
     archiveSignature = signature;
     $('archive-status').textContent = `${status.ready} durchsuchbar · ${status.failed} fehlgeschlagen`;
-    $('scan-status').textContent = status.source_error ? 'Archivverzeichnis nicht verfügbar oder ausgetauscht. Verarbeitung pausiert; der Index bleibt erhalten.' : status.scan.running ? `Abgleich: ${status.scan.current || 'Verzeichnis wird geprüft …'}` : status.scan.error ? `Abgleich fehlgeschlagen: ${status.scan.error}` : status.scan.finished ? `Letzter Abgleich: ${new Date(status.scan.finished).toLocaleString('de-DE')}` : 'Noch kein Abgleich abgeschlossen.';
+    const skippedCount = status.scan.skipped_count || 0;
+    const skippedLabel = skippedCount === 1 ? '1 unzugänglicher Pfad' : `${skippedCount} unzugängliche Pfade`;
+    $('scan-status').textContent = status.source_error ? 'Archivverzeichnis nicht verfügbar oder ausgetauscht. Verarbeitung pausiert; der Index bleibt erhalten.' : status.scan.running ? `Abgleich: ${status.scan.current || 'Verzeichnis wird geprüft …'}` : skippedCount ? `Abgleich unvollständig: ${skippedLabel} übersprungen; fehlende Dokumente wurden nicht gelöscht.` : status.scan.error ? `Abgleich fehlgeschlagen: ${status.scan.error}` : status.scan.finished ? `Letzter Abgleich: ${new Date(status.scan.finished).toLocaleString('de-DE')}` : 'Noch kein Abgleich abgeschlossen.';
+    $('scan-skipped-panel').hidden = !status.scan.skipped?.length; $('scan-skipped').replaceChildren();
+    for (const skipped of status.scan.skipped || []) $('scan-skipped').append(element('li', skipped));
     const queue = status.queue || {pending: 0, running: 0};
     $('queue-status').textContent = `${queue.pending} warten · ${queue.running} in Verarbeitung`;
     $('processing-status').textContent = queue.active ? `${queue.active.path} · ${queue.active.completed_pages} von ${queue.active.total_pages || '?'} Seiten fertig` : '';

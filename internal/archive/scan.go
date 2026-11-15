@@ -16,26 +16,35 @@ import (
 )
 
 type ScanReport struct {
-	Running   bool   `json:"running"`
-	Current   string `json:"current,omitempty"`
-	Updated   int    `json:"updated"`
-	Queued    int    `json:"queued"`
-	Unchanged int    `json:"unchanged"`
-	Deleted   int    `json:"deleted"`
-	Failed    int    `json:"failed"`
-	Finished  string `json:"finished,omitempty"`
-	Error     string `json:"error,omitempty"`
+	Running      bool     `json:"running"`
+	Current      string   `json:"current,omitempty"`
+	Skipped      []string `json:"skipped,omitempty"`
+	SkippedCount int      `json:"skipped_count"`
+	Updated      int      `json:"updated"`
+	Queued       int      `json:"queued"`
+	Unchanged    int      `json:"unchanged"`
+	Deleted      int      `json:"deleted"`
+	Failed       int      `json:"failed"`
+	Finished     string   `json:"finished,omitempty"`
+	Error        string   `json:"error,omitempty"`
 }
 type Scanner struct {
-	Store      *Store
-	Root       string
-	Extractor  Extractor
-	AllowEmpty bool
-	mu         sync.Mutex
-	report     ScanReport
+	Store         *Store
+	Root          string
+	Extractor     Extractor
+	AllowEmpty    bool
+	mu            sync.Mutex
+	report        ScanReport
+	loggedSkipped map[string]struct{}
 }
 
-func (s *Scanner) Status() ScanReport          { s.mu.Lock(); defer s.mu.Unlock(); return s.report }
+func (s *Scanner) Status() ScanReport {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	report := s.report
+	report.Skipped = append([]string(nil), report.Skipped...)
+	return report
+}
 func (s *Scanner) update(fn func(*ScanReport)) { s.mu.Lock(); defer s.mu.Unlock(); fn(&s.report) }
 
 func fingerprint(path string) (string, error) {
@@ -59,8 +68,12 @@ func (s *Scanner) Scan(ctx context.Context, full bool) (err error) {
 		s.mu.Unlock()
 		return fmt.Errorf("a scan is already running")
 	}
-	s.report = ScanReport{Running: true}
+	previouslyLogged := s.report.Skipped
+	s.report = ScanReport{Running: true, Skipped: previouslyLogged}
 	s.mu.Unlock()
+	if s.loggedSkipped == nil {
+		s.loggedSkipped = make(map[string]struct{})
+	}
 	defer func() {
 		s.update(func(r *ScanReport) {
 			r.Running = false
@@ -84,7 +97,23 @@ func (s *Scanner) Scan(ctx context.Context, full bool) (err error) {
 	seen := map[string]bool{}
 	err = filepath.WalkDir(s.Root, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
-			return walkErr
+			if path == s.Root {
+				return walkErr
+			}
+			rel, relErr := filepath.Rel(s.Root, path)
+			if relErr != nil {
+				return relErr
+			}
+			rel = filepath.ToSlash(rel)
+			s.update(func(r *ScanReport) { r.SkippedCount++ })
+			if _, exists := s.loggedSkipped[rel]; !exists {
+				s.loggedSkipped[rel] = struct{}{}
+				s.update(func(r *ScanReport) { r.Skipped = append(r.Skipped, fmt.Sprintf("%s: %v", rel, walkErr)) })
+			}
+			if entry != nil && entry.IsDir() {
+				return fs.SkipDir
+			}
+			return nil
 		}
 		if err := ctx.Err(); err != nil {
 			return err
@@ -146,6 +175,9 @@ func (s *Scanner) Scan(ctx context.Context, full bool) (err error) {
 	})
 	if err != nil {
 		return fmt.Errorf("scan incomplete; deletion skipped: %w", err)
+	}
+	if skippedCount := s.Status().SkippedCount; skippedCount > 0 {
+		return fmt.Errorf("scan incomplete; deletion skipped (%d inaccessible path(s))", skippedCount)
 	}
 	// Recheck availability before pruning; a failed or disconnected mount must not look empty.
 	currentRoot, statErr := os.Stat(s.Root)
