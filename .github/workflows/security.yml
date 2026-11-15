@@ -211,7 +211,7 @@ jobs:
         run: echo "name=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
       - name: Extract image metadata
         id: meta
-        uses: docker/metadata-action@dc80280 # v6.2.0
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
           images: ghcr.io/${{ steps.owner.outputs.name }}/${{ matrix.image }}
           flavor: latest=auto
@@ -223,7 +223,7 @@ jobs:
             type=semver,pattern={{major}}
             type=sha
       - name: Build and publish
-        uses: docker/build-push-action@c3c9e26 # v7.4.0
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: ${{ matrix.dockerfile }}
