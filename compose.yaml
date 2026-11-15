@@ -1,8 +1,6 @@
 x-archive-agent: &archive-agent
-  build:
-    context: .
-    dockerfile: Dockerfile.agent
-  image: agenticarchive-agent:local
+  image: ghcr.io/lauryx-star/agenticarchive-agent:${IMAGE_TAG:-edge}
+  pull_policy: always
   environment: &agent-environment
     OPENAI_MODEL: ${OPENAI_MODEL:-}
     OPENAI_API_URL: ${OPENAI_API_URL:-}
@@ -22,11 +20,11 @@ x-archive-agent: &archive-agent
   stop_grace_period: 15s
 
 # All deployment settings live in .env; see .env.example.
-# Start: docker compose up -d --build
+# Start: docker compose up -d
 services:
   agenticarchive:
-    build: .
-    image: agenticarchive:local
+    image: ghcr.io/lauryx-star/agenticarchive:${IMAGE_TAG:-edge}
+    pull_policy: always
     environment:
       AUTH_SECURE_COOKIE: ${AUTH_SECURE_COOKIE:-false}
       AGENT_URL: ${AGENT_URL:-}

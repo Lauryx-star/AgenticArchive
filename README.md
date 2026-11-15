@@ -20,8 +20,14 @@ cp .env.example .env
 mkdir -p archive
 mkdir -m 700 secrets
 openssl rand -hex 32 > secrets/agent-service-key.txt
-docker compose up --build -d
+docker compose up -d
 ```
+
+The Compose file uses the published GitHub Container Registry images. After this
+workflow is merged, each green push to `main` updates the `edge` images; pushing
+a version tag such as `v1.2.3` publishes version tags as well. To select a
+specific version, set `IMAGE_TAG=1.2.3` in `.env`. The images currently target
+`linux/amd64` for the NAS setup.
 
 The template selects local Ollama; install/run it and download `qwen3:8b` first,
 create `agenticarchive-qwen3:8b` with `ollama create agenticarchive-qwen3:8b -f ollama/Modelfile`,
