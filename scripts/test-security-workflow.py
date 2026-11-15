@@ -28,8 +28,11 @@ class SecurityGateTests(unittest.TestCase):
     def test_all_scanners_are_required(self):
         self.assertEqual(self.gate["name"], "Security gate")
         self.assertEqual(self.gate["if"], "${{ always() }}")
-        self.assertEqual(set(self.gate["needs"]), set(self.jobs) - {"gate"})
+        self.assertEqual(
+            set(self.gate["needs"]), {"go", "static", "repository", "container"}
+        )
         self.assertEqual(len(self.gate["needs"]), 4)
+        self.assertEqual(self.jobs["publish"]["needs"], ["gate"])
         self.assertEqual(
             self.gate["steps"][0]["env"]["RESULTS"], "${{ toJSON(needs) }}"
         )
